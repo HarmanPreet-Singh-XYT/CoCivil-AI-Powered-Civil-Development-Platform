@@ -20,10 +20,32 @@ class PolicyDocument(Base, UUIDPrimaryKey):
     doc_type: Mapped[str] = mapped_column(String, nullable=False)
     title: Mapped[str] = mapped_column(String, nullable=False)
     source_url: Mapped[Optional[str]] = mapped_column(String, nullable=True)
+    publisher: Mapped[Optional[str]] = mapped_column(String, nullable=True)
+    acquired_at: Mapped[Optional[datetime]] = mapped_column(DateTime(timezone=True), nullable=True)
     effective_date: Mapped[Optional[datetime]] = mapped_column(Date, nullable=True)
     expiry_date: Mapped[Optional[datetime]] = mapped_column(Date, nullable=True)
     object_key: Mapped[str] = mapped_column(String, nullable=False)
     file_hash: Mapped[str] = mapped_column(String, nullable=False, index=True)
+    lineage_json: Mapped[dict] = mapped_column(JSON, nullable=False, server_default="{}")
+    redistribution_policy: Mapped[Optional[str]] = mapped_column(String, nullable=True)
+    source_schema_version: Mapped[Optional[str]] = mapped_column(String, nullable=True)
+    license_status: Mapped[str] = mapped_column(String, nullable=False, default="unknown", server_default="unknown")
+    internal_storage_allowed: Mapped[bool] = mapped_column(
+        Boolean, nullable=False, default=False, server_default="false"
+    )
+    redistribution_allowed: Mapped[bool] = mapped_column(
+        Boolean, nullable=False, default=False, server_default="false"
+    )
+    export_allowed: Mapped[bool] = mapped_column(Boolean, nullable=False, default=False, server_default="false")
+    derived_export_allowed: Mapped[bool] = mapped_column(
+        Boolean, nullable=False, default=False, server_default="false"
+    )
+    aggregation_required: Mapped[bool] = mapped_column(
+        Boolean, nullable=False, default=False, server_default="false"
+    )
+    retention_policy: Mapped[Optional[str]] = mapped_column(String, nullable=True)
+    license_expires_at: Mapped[Optional[datetime]] = mapped_column(DateTime(timezone=True), nullable=True)
+    source_metadata_json: Mapped[dict] = mapped_column(JSON, nullable=False, server_default="{}")
     parse_status: Mapped[str] = mapped_column(String, nullable=False, default="pending", server_default="pending")
     created_at: Mapped[datetime] = mapped_column(DateTime(timezone=True), server_default=func.now())
 
@@ -38,6 +60,9 @@ class PolicyVersion(Base, UUIDPrimaryKey):
 
     document_id: Mapped[uuid.UUID] = mapped_column(
         UUID(as_uuid=True), ForeignKey("policy_documents.id", ondelete="CASCADE"), nullable=False
+    )
+    source_snapshot_id: Mapped[Optional[uuid.UUID]] = mapped_column(
+        UUID(as_uuid=True), ForeignKey("source_snapshots.id"), nullable=True, index=True
     )
     version_number: Mapped[int] = mapped_column(Integer, nullable=False)
     parser_version: Mapped[str] = mapped_column(String, nullable=False)
@@ -81,6 +106,7 @@ class PolicyClause(Base, UUIDPrimaryKey):
         back_populates="to_clause", foreign_keys="PolicyReference.to_clause_id"
     )
     applicability_rules: Mapped[list["PolicyApplicabilityRule"]] = relationship(back_populates="policy_clause")
+    review_items: Mapped[list["PolicyReviewItem"]] = relationship(back_populates="policy_clause")
 
 
 class PolicyReference(Base, UUIDPrimaryKey):
@@ -121,3 +147,21 @@ class PolicyApplicabilityRule(Base, UUIDPrimaryKey):
     applicability_json: Mapped[dict] = mapped_column(JSON, nullable=False, server_default="{}")
 
     policy_clause: Mapped["PolicyClause"] = relationship(back_populates="applicability_rules")
+
+
+class PolicyReviewItem(Base, UUIDPrimaryKey):
+    __tablename__ = "policy_review_items"
+
+    policy_clause_id: Mapped[uuid.UUID] = mapped_column(
+        UUID(as_uuid=True), ForeignKey("policy_clauses.id", ondelete="CASCADE"), nullable=False, index=True
+    )
+    status: Mapped[str] = mapped_column(String, nullable=False, default="pending", server_default="pending")
+    review_reason: Mapped[str] = mapped_column(String, nullable=False)
+    assigned_to: Mapped[Optional[uuid.UUID]] = mapped_column(
+        UUID(as_uuid=True), ForeignKey("users.id"), nullable=True
+    )
+    resolution_json: Mapped[dict] = mapped_column(JSON, nullable=False, server_default="{}")
+    reviewed_at: Mapped[Optional[datetime]] = mapped_column(DateTime(timezone=True), nullable=True)
+    created_at: Mapped[datetime] = mapped_column(DateTime(timezone=True), server_default=func.now())
+
+    policy_clause: Mapped["PolicyClause"] = relationship(back_populates="review_items")

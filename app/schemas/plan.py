@@ -39,9 +39,24 @@ class SubmissionDocumentResponse(BaseModel):
     status: str
     sort_order: int
     content_text: str | None = None
+    review_status: str = "draft"
+    reviewed_by: uuid.UUID | None = None
+    reviewed_at: datetime | None = None
+    review_notes: str | None = None
+    disclaimer_accepted: bool = False
     created_at: datetime
 
     model_config = {"from_attributes": True}
+
+
+class ReviewSubmitRequest(BaseModel):
+    """Request to submit a document for review."""
+    pass
+
+
+class ReviewActionRequest(BaseModel):
+    """Request to approve or reject a document."""
+    notes: str | None = None
 
 
 class PlanResponse(BaseModel):

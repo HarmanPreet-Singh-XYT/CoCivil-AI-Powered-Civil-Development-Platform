@@ -20,6 +20,12 @@ class ExportJob(Base, UUIDPrimaryKey):
     )
     export_type: Mapped[str] = mapped_column(String, nullable=False)
     status: Mapped[str] = mapped_column(String, nullable=False, default="pending", server_default="pending")
+    governance_status: Mapped[str] = mapped_column(
+        String, nullable=False, default="pending", server_default="pending"
+    )
+    blocked_reason: Mapped[Optional[str]] = mapped_column(Text, nullable=True)
+    applied_controls_json: Mapped[dict] = mapped_column(JSON, nullable=False, server_default="{}")
+    error_message: Mapped[Optional[str]] = mapped_column(Text, nullable=True)
     object_key: Mapped[Optional[str]] = mapped_column(String, nullable=True)
     signed_url: Mapped[Optional[str]] = mapped_column(String, nullable=True)
     expires_at: Mapped[Optional[datetime]] = mapped_column(DateTime(timezone=True), nullable=True)

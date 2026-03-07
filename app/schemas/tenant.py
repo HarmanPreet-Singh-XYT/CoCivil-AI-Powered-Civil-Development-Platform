@@ -29,6 +29,7 @@ class AddParcelRequest(BaseModel):
 class ScenarioCreate(BaseModel):
     scenario_type: str = Field(default="base", pattern="^(base|variance|what_if)$")
     parent_scenario_id: uuid.UUID | None = None
+    snapshot_manifest_id: uuid.UUID | None = None
     parameters: dict | None = None
 
 
@@ -40,6 +41,7 @@ class ScenarioResponse(BaseModel):
     status: str
     input_hash: str
     label: str | None = None
+    snapshot_manifest_id: uuid.UUID | None = None
     created_at: datetime
     completed_at: datetime | None = None
 

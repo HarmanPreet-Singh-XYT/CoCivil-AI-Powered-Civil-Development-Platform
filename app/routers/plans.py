@@ -14,7 +14,14 @@ from app.schemas.plan import (
     PlanGenerateRequest,
     PlanListResponse,
     PlanResponse,
+    ReviewActionRequest,
+    ReviewSubmitRequest,
     SubmissionDocumentResponse,
+)
+from app.services.submission.review import (
+    approve_document,
+    reject_document,
+    submit_for_review,
 )
 from app.tasks.plan import run_plan_generation
 
@@ -164,4 +171,88 @@ async def get_plan_document(
     doc = result.scalar_one_or_none()
     if not doc:
         raise HTTPException(status_code=404, detail="Document not found")
+    return doc
+
+
+@router.post(
+    "/plans/{plan_id}/documents/{doc_id}/submit-review",
+    response_model=SubmissionDocumentResponse,
+)
+async def submit_document_for_review(
+    plan_id: uuid.UUID,
+    doc_id: uuid.UUID,
+    db: AsyncSession = Depends(get_db_session),
+    user: dict = Depends(get_current_user),
+):
+    """Submit a generated document for human review."""
+    # Verify ownership
+    plan_result = await db.execute(
+        select(DevelopmentPlan).where(
+            DevelopmentPlan.id == plan_id,
+            DevelopmentPlan.organization_id == user["organization_id"],
+        )
+    )
+    if not plan_result.scalar_one_or_none():
+        raise HTTPException(status_code=404, detail="Plan not found")
+
+    try:
+        doc = await submit_for_review(db, doc_id, user["id"])
+    except ValueError as e:
+        raise HTTPException(status_code=400, detail=str(e))
+    return doc
+
+
+@router.post(
+    "/plans/{plan_id}/documents/{doc_id}/approve",
+    response_model=SubmissionDocumentResponse,
+)
+async def approve_plan_document(
+    plan_id: uuid.UUID,
+    doc_id: uuid.UUID,
+    body: ReviewActionRequest,
+    db: AsyncSession = Depends(get_db_session),
+    user: dict = Depends(get_current_user),
+):
+    """Approve a document after review."""
+    plan_result = await db.execute(
+        select(DevelopmentPlan).where(
+            DevelopmentPlan.id == plan_id,
+            DevelopmentPlan.organization_id == user["organization_id"],
+        )
+    )
+    if not plan_result.scalar_one_or_none():
+        raise HTTPException(status_code=404, detail="Plan not found")
+
+    try:
+        doc = await approve_document(db, doc_id, user["id"], body.notes)
+    except ValueError as e:
+        raise HTTPException(status_code=400, detail=str(e))
+    return doc
+
+
+@router.post(
+    "/plans/{plan_id}/documents/{doc_id}/reject",
+    response_model=SubmissionDocumentResponse,
+)
+async def reject_plan_document(
+    plan_id: uuid.UUID,
+    doc_id: uuid.UUID,
+    body: ReviewActionRequest,
+    db: AsyncSession = Depends(get_db_session),
+    user: dict = Depends(get_current_user),
+):
+    """Reject a document — returns it to draft for revision."""
+    plan_result = await db.execute(
+        select(DevelopmentPlan).where(
+            DevelopmentPlan.id == plan_id,
+            DevelopmentPlan.organization_id == user["organization_id"],
+        )
+    )
+    if not plan_result.scalar_one_or_none():
+        raise HTTPException(status_code=404, detail="Plan not found")
+
+    try:
+        doc = await reject_document(db, doc_id, user["id"], body.notes)
+    except ValueError as e:
+        raise HTTPException(status_code=400, detail=str(e))
     return doc

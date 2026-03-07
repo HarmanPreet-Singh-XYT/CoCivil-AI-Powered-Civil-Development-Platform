@@ -103,6 +103,9 @@ class ScenarioRun(Base, UUIDPrimaryKey):
     label: Mapped[Optional[str]] = mapped_column(String, nullable=True)
     input_hash: Mapped[str] = mapped_column(String, nullable=False, index=True)
     source_snapshot_id: Mapped[Optional[uuid.UUID]] = mapped_column(UUID(as_uuid=True), nullable=True)
+    snapshot_manifest_id: Mapped[Optional[uuid.UUID]] = mapped_column(
+        UUID(as_uuid=True), ForeignKey("snapshot_manifests.id"), nullable=True, index=True
+    )
     status: Mapped[str] = mapped_column(String, nullable=False, default="pending", server_default="pending")
     created_at: Mapped[datetime] = mapped_column(DateTime(timezone=True), server_default=func.now())
     completed_at: Mapped[Optional[datetime]] = mapped_column(DateTime(timezone=True), nullable=True)
@@ -111,3 +114,34 @@ class ScenarioRun(Base, UUIDPrimaryKey):
     parent_scenario: Mapped[Optional["ScenarioRun"]] = relationship(
         remote_side="ScenarioRun.id", foreign_keys=[parent_scenario_id]
     )
+    snapshot_manifest: Mapped[Optional["AnalysisSnapshotManifest"]] = relationship(
+        back_populates="scenario_run", uselist=False
+    )
+    governance_manifest: Mapped[Optional["SnapshotManifest"]] = relationship(foreign_keys=[snapshot_manifest_id])
+
+
+class AnalysisSnapshotManifest(Base, UUIDPrimaryKey):
+    __tablename__ = "analysis_snapshot_manifests"
+
+    scenario_run_id: Mapped[uuid.UUID] = mapped_column(
+        UUID(as_uuid=True), ForeignKey("scenario_runs.id", ondelete="CASCADE"), nullable=False, unique=True, index=True
+    )
+    parcel_snapshot_id: Mapped[Optional[uuid.UUID]] = mapped_column(
+        UUID(as_uuid=True), ForeignKey("source_snapshots.id"), nullable=True
+    )
+    policy_snapshot_id: Mapped[Optional[uuid.UUID]] = mapped_column(
+        UUID(as_uuid=True), ForeignKey("source_snapshots.id"), nullable=True
+    )
+    overlay_snapshot_id: Mapped[Optional[uuid.UUID]] = mapped_column(
+        UUID(as_uuid=True), ForeignKey("source_snapshots.id"), nullable=True
+    )
+    precedent_snapshot_id: Mapped[Optional[uuid.UUID]] = mapped_column(
+        UUID(as_uuid=True), ForeignKey("source_snapshots.id"), nullable=True
+    )
+    market_snapshot_id: Mapped[Optional[uuid.UUID]] = mapped_column(
+        UUID(as_uuid=True), ForeignKey("source_snapshots.id"), nullable=True
+    )
+    model_versions_json: Mapped[dict] = mapped_column(JSON, nullable=False, server_default="{}")
+    created_at: Mapped[datetime] = mapped_column(DateTime(timezone=True), server_default=func.now())
+
+    scenario_run: Mapped["ScenarioRun"] = relationship(back_populates="snapshot_manifest")

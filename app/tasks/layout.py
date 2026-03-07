@@ -1,5 +1,14 @@
 import structlog
+import uuid
 
+from app.database import get_sync_db
+from app.models.simulation import LayoutRun, Massing
+from app.services.thin_slice_runtime import (
+    compute_layout_result,
+    resolve_project_context,
+    resolve_template,
+    resolve_unit_types,
+)
 from app.worker import celery_app
 
 logger = structlog.get_logger()
@@ -16,12 +25,52 @@ def run_layout(self, job_id: str, massing_id: str, params: dict | None = None):
     4. Store results and update job status
     """
     logger.info("layout.started", job_id=job_id, massing_id=massing_id)
+    db = get_sync_db()
+    try:
+        layout = db.query(LayoutRun).filter(LayoutRun.id == job_id).one()
+        massing = db.query(Massing).filter(Massing.id == massing_id).one()
+        layout.status = "running"
+        db.flush()
 
-    # TODO: Implement OR-Tools LP optimization
-    # - Define decision variables (unit counts per type per floor)
-    # - Revenue or density objective
-    # - Area, parking, accessibility constraints
-    # - Solve and extract allocation
+        context = resolve_project_context(db, str(massing.scenario_run_id))
+        template_id = uuid.UUID(str(params["template_id"])) if params and params.get("template_id") else None
+        template, template_payload = resolve_template(db, template_id or massing.template_id)
+        unit_type_ids = None
+        if params and params.get("unit_type_ids"):
+            unit_type_ids = [uuid.UUID(str(unit_type_id)) for unit_type_id in params["unit_type_ids"]]
+        overrides = dict(params or {})
+        overrides.setdefault("objective", layout.objective)
+        unit_types = resolve_unit_types(db, unit_type_ids=unit_type_ids, jurisdiction_id=context.parcel.jurisdiction_id)
 
-    logger.info("layout.completed", job_id=job_id, massing_id=massing_id)
-    return {"job_id": job_id, "status": "completed"}
+        result = compute_layout_result(
+            massing.summary_json,
+            template_payload,
+            unit_types,
+            overrides=overrides,
+        )
+
+        layout.constraints_json = {
+            "requested": overrides,
+            "template": template.name,
+            "unit_type_ids": [str(unit_type.id) for unit_type in unit_types],
+        }
+        layout.result_json = result
+        layout.total_units = result["total_units"]
+        layout.total_area_m2 = result["allocated_area_m2"]
+        layout.status = "completed"
+
+        db.commit()
+        logger.info("layout.completed", job_id=job_id, massing_id=massing_id, total_units=result["total_units"])
+        return {"job_id": job_id, "status": "completed", "result": result}
+    except Exception as exc:
+        db.rollback()
+        try:
+            layout = db.query(LayoutRun).filter(LayoutRun.id == job_id).one()
+            layout.status = "failed"
+            db.commit()
+        except Exception:
+            db.rollback()
+        logger.error("layout.failed", job_id=job_id, massing_id=massing_id, error=str(exc))
+        raise
+    finally:
+        db.close()

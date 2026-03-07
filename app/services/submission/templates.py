@@ -2,16 +2,36 @@
 
 Each template defines how to generate a specific government submission document.
 The AI provider uses these to produce professional, citation-rich content.
+
+IMPORTANT: All references use Provincial Planning Statement, 2024 (PPS 2024),
+which replaced PPS 2020 and the Growth Plan effective October 20, 2024.
 """
+
+SAFETY_PREAMBLE = (
+    "DRAFT — FOR PROFESSIONAL REVIEW ONLY. This document was generated with "
+    "computational assistance and must be reviewed by a qualified Ontario Land "
+    "Use Planner (RPP) before submission to any municipal authority. Do not "
+    "rely on this document as legal or planning advice without independent "
+    "professional verification."
+)
+
+_GROUNDING_INSTRUCTION = (
+    "IMPORTANT: Only reference by-law sections and policy numbers provided in "
+    "the context below. Do not invent or assume any legal references. If specific "
+    "data is not provided, state that it requires manual verification rather than "
+    "fabricating values."
+)
 
 DOCUMENT_TEMPLATES = {
     "cover_letter": {
         "system_prompt": (
+            f"{SAFETY_PREAMBLE}\n\n"
             "You are a professional urban planning consultant in Toronto, Ontario. "
             "Write a formal cover letter to the City of Toronto Planning Department "
             "introducing a development application. Be concise, professional, and reference "
             "the specific municipal address, application type, and key proposal metrics. "
-            "Use standard Canadian business letter format."
+            "Use standard Canadian business letter format.\n\n"
+            f"{_GROUNDING_INSTRUCTION}"
         ),
         "user_prompt_template": (
             "Write a cover letter for a development application with these details:\n\n"
@@ -21,7 +41,7 @@ DOCUMENT_TEMPLATES = {
             "Building Type: {building_type}\n"
             "Proposed Height: {height_m}m ({storeys} storeys)\n"
             "Total Units: {unit_count}\n"
-            "GFA: {gross_floor_area_sqm} sqm\n"
+            "GFA: {gross_floor_area_sqm}\n"
             "Applicant Organization: {organization_name}\n\n"
             "Key points to cover:\n"
             "- Introduction of the applicant and property\n"
@@ -35,33 +55,38 @@ DOCUMENT_TEMPLATES = {
 
     "planning_rationale": {
         "system_prompt": (
+            f"{SAFETY_PREAMBLE}\n\n"
             "You are a senior planning consultant writing a Planning Rationale for submission "
-            "to the City of Toronto. This document must:\n"
-            "1. Describe the site and surrounding context\n"
-            "2. Analyze conformity with the Provincial Policy Statement\n"
-            "3. Analyze conformity with the Growth Plan for the Greater Golden Horseshoe\n"
-            "4. Analyze conformity with the Toronto Official Plan\n"
-            "5. Analyze conformity with applicable Secondary Plans\n"
-            "6. Analyze conformity with Zoning By-law 569-2013\n"
-            "7. Reference specific policy sections with citations\n"
-            "8. Justify any requested variances with precedent\n"
-            "9. Conclude with a recommendation for approval\n\n"
-            "Use professional planning language. Cite specific bylaw sections. "
-            "This is a legal document that will be reviewed by city planners."
+            "to the City of Toronto. This document must analyze conformity with the applicable "
+            "policy framework in the following hierarchy:\n\n"
+            "1. Provincial Planning Statement, 2024 (PPS 2024) — replaced PPS 2020 and the "
+            "Growth Plan for the Greater Golden Horseshoe, effective October 20, 2024\n"
+            "2. City of Toronto Official Plan (consolidated 2022)\n"
+            "3. Secondary Plans / Site and Area Specific Policies\n"
+            "4. Zoning By-law 569-2013 (as amended)\n"
+            "5. Design Guidelines (Tall Building, Mid-Rise, Growing Up, Pet-Friendly)\n\n"
+            "For each policy layer:\n"
+            "- Describe the site and surrounding context\n"
+            "- Analyze conformity with specific policies, citing section numbers\n"
+            "- Justify any requested variances with precedent\n"
+            "- Conclude with a recommendation for approval\n\n"
+            "Use professional planning language. Cite specific by-law sections. "
+            "This is a legal document that will be reviewed by city planners.\n\n"
+            f"{_GROUNDING_INSTRUCTION}"
         ),
         "user_prompt_template": (
             "Write a Planning Rationale for this development proposal:\n\n"
             "## Site Information\n"
             "Address: {address}\n"
             "Current Zoning: {zoning_code}\n"
-            "Lot Area: {lot_area_sqm} sqm\n"
-            "Lot Frontage: {lot_frontage_m}m\n"
+            "Lot Area: {lot_area_sqm}\n"
+            "Lot Frontage: {lot_frontage_m}\n"
             "Current Use: {current_use}\n\n"
             "## Proposed Development\n"
             "Project: {project_name}\n"
             "Type: {development_type} — {building_type}\n"
             "Height: {height_m}m ({storeys} storeys)\n"
-            "GFA: {gross_floor_area_sqm} sqm\n"
+            "GFA: {gross_floor_area_sqm}\n"
             "Units: {unit_count}\n"
             "Ground Floor: {ground_floor_use}\n"
             "Parking: {parking_type}\n\n"
@@ -79,65 +104,51 @@ DOCUMENT_TEMPLATES = {
 
     "compliance_matrix": {
         "system_prompt": (
-            "You are generating a Policy Compliance Matrix for a Toronto development application. "
-            "Present each zoning provision as a row in a structured table format. "
-            "For each provision, show: the bylaw section, the required value, the proposed value, "
-            "and whether the proposal complies (COMPLIES / VARIANCE REQUIRED). "
-            "Use Markdown table format. Be precise with numbers and units."
+            f"{SAFETY_PREAMBLE}\n\n"
+            "You are writing a brief introductory narrative for a Policy Compliance Matrix. "
+            "The actual compliance matrix table is provided below and was generated "
+            "deterministically from by-law standards — do NOT modify, re-generate, or "
+            "reformat the table. Write only a 2-3 paragraph introduction summarizing "
+            "the compliance status and any key variances.\n\n"
+            f"{_GROUNDING_INSTRUCTION}"
         ),
         "user_prompt_template": (
-            "Generate a compliance matrix for this proposal:\n\n"
+            "Write an introductory narrative for this compliance matrix:\n\n"
             "Address: {address}\n"
             "Zoning: {zoning_code}\n\n"
             "## Proposed Metrics\n"
             "Height: {height_m}m ({storeys} storeys)\n"
-            "GFA: {gross_floor_area_sqm} sqm\n"
-            "Lot Coverage: {lot_coverage_pct}%\n"
+            "GFA: {gross_floor_area_sqm}\n"
+            "Lot Coverage: {lot_coverage_pct}\n"
             "FSI/FAR: {fsi}\n"
             "Units: {unit_count}\n\n"
-            "## Applicable Provisions\n"
-            "{policy_provisions}\n\n"
-            "## Entitlement Check Results\n"
-            "{entitlement_results}\n\n"
-            "Format as a Markdown table with columns:\n"
-            "| Provision | By-law Section | Required | Proposed | Status |"
+            "## Deterministic Compliance Matrix\n"
+            "The following table was computed from By-law 569-2013 standards and must "
+            "not be modified:\n\n"
+            "{compliance_summary}\n\n"
+            "## Variances Required\n"
+            "{variance_summary}\n\n"
+            "Write a brief professional narrative introducing this compliance matrix. "
+            "Do NOT reproduce or alter the table above."
         ),
-        "max_tokens": 4096,
-        "structured_output": {
-            "type": "object",
-            "properties": {
-                "provisions": {
-                    "type": "array",
-                    "items": {
-                        "type": "object",
-                        "properties": {
-                            "provision": {"type": "string"},
-                            "bylaw_section": {"type": "string"},
-                            "required_value": {"type": "string"},
-                            "proposed_value": {"type": "string"},
-                            "status": {"type": "string", "enum": ["COMPLIES", "VARIANCE REQUIRED"]},
-                        },
-                    },
-                },
-                "total_compliant": {"type": "integer"},
-                "total_variance": {"type": "integer"},
-            },
-        },
+        "max_tokens": 2048,
     },
 
     "site_plan_data": {
         "system_prompt": (
+            f"{SAFETY_PREAMBLE}\n\n"
             "You are generating a Site Plan Data Summary for a development application. "
             "Present the parcel geometry, setback dimensions, building footprint, "
             "access points, servicing, and key site dimensions in a clear, structured format. "
-            "Use metric units (metres, square metres). Include a data table and narrative description."
+            "Use metric units (metres, square metres). Include a data table and narrative description.\n\n"
+            f"{_GROUNDING_INSTRUCTION}"
         ),
         "user_prompt_template": (
             "Generate a site plan data summary:\n\n"
             "Address: {address}\n"
-            "Lot Area: {lot_area_sqm} sqm\n"
-            "Lot Frontage: {lot_frontage_m}m\n"
-            "Lot Depth: {lot_depth_m}m\n"
+            "Lot Area: {lot_area_sqm}\n"
+            "Lot Frontage: {lot_frontage_m}\n"
+            "Lot Depth: {lot_depth_m}\n"
             "Current Use: {current_use}\n\n"
             "## Setbacks & Building Envelope\n"
             "{setback_data}\n\n"
@@ -150,17 +161,19 @@ DOCUMENT_TEMPLATES = {
 
     "massing_summary": {
         "system_prompt": (
+            f"{SAFETY_PREAMBLE}\n\n"
             "You are generating a Built Form / Massing Summary for a development application. "
             "Describe the building envelope, height strategy, stepback regime, podium/tower "
             "relationship (if applicable), and key volumetric metrics. "
-            "Reference Toronto's Tall Building Guidelines where relevant."
+            "Reference Toronto's Tall Building Design Guidelines where relevant.\n\n"
+            f"{_GROUNDING_INSTRUCTION}"
         ),
         "user_prompt_template": (
             "Generate a massing summary:\n\n"
             "Project: {project_name}\n"
             "Building Type: {building_type}\n"
             "Height: {height_m}m ({storeys} storeys)\n"
-            "GFA: {gross_floor_area_sqm} sqm\n\n"
+            "GFA: {gross_floor_area_sqm}\n\n"
             "## Massing Parameters\n"
             "{massing_parameters}\n\n"
             "## Policy Constraints Applied\n"
@@ -173,16 +186,18 @@ DOCUMENT_TEMPLATES = {
 
     "unit_mix_summary": {
         "system_prompt": (
+            f"{SAFETY_PREAMBLE}\n\n"
             "You are generating a Unit Mix Summary for a Toronto development application. "
             "Present the unit breakdown by type (studio, 1-bed, 2-bed, 3-bed), count, "
             "area ranges, and percentage. Include accessible unit counts. "
-            "Reference Toronto's Growing Up Guidelines for family-sized unit requirements."
+            "Reference Toronto's Growing Up Guidelines for family-sized unit requirements.\n\n"
+            f"{_GROUNDING_INSTRUCTION}"
         ),
         "user_prompt_template": (
             "Generate a unit mix summary:\n\n"
             "Total Units: {unit_count}\n"
             "Building Type: {building_type}\n"
-            "GFA: {gross_floor_area_sqm} sqm\n\n"
+            "GFA: {gross_floor_area_sqm}\n\n"
             "## Unit Mix\n"
             "{unit_mix_data}\n\n"
             "## Layout Optimization Results\n"
@@ -214,18 +229,20 @@ DOCUMENT_TEMPLATES = {
 
     "financial_feasibility": {
         "system_prompt": (
+            f"{SAFETY_PREAMBLE}\n\n"
             "You are generating a Financial Feasibility Summary for a development application. "
             "Present high-level pro forma metrics: revenue projections, construction costs, "
             "land value assumptions, NOI, cap rate, and return estimates. "
             "This is a summary — not a full pro forma — intended to demonstrate project viability. "
             "Use Toronto market assumptions. Present in a professional format suitable for "
-            "a planning submission or investor review."
+            "a planning submission or investor review.\n\n"
+            f"{_GROUNDING_INSTRUCTION}"
         ),
         "user_prompt_template": (
             "Generate a financial feasibility summary:\n\n"
             "Project: {project_name}\n"
             "Units: {unit_count}\n"
-            "GFA: {gross_floor_area_sqm} sqm\n"
+            "GFA: {gross_floor_area_sqm}\n"
             "Building Type: {building_type}\n\n"
             "## Financial Analysis Results\n"
             "{financial_results}\n\n"
@@ -241,11 +258,13 @@ DOCUMENT_TEMPLATES = {
 
     "precedent_report": {
         "system_prompt": (
+            f"{SAFETY_PREAMBLE}\n\n"
             "You are generating a Precedent Analysis Report for a development application. "
             "Present comparable approved developments nearby, including their address, "
             "application number, approval date, key metrics (height, units, FSI), "
             "and relevant excerpts from planning rationales or staff reports. "
-            "This strengthens the application by showing that similar proposals have been approved."
+            "This strengthens the application by showing that similar proposals have been approved.\n\n"
+            f"{_GROUNDING_INSTRUCTION}"
         ),
         "user_prompt_template": (
             "Generate a precedent analysis report:\n\n"
@@ -264,12 +283,16 @@ DOCUMENT_TEMPLATES = {
 
     "public_benefit_statement": {
         "system_prompt": (
-            "You are generating a Public Benefit Statement (Section 37 / Community Benefits) "
+            f"{SAFETY_PREAMBLE}\n\n"
+            "You are generating a Public Benefit Statement (Community Benefits) "
             "for a Toronto development application. Describe how the proposed development "
             "contributes to the community: affordable housing commitments, public realm "
             "improvements, community facilities, parkland contributions, public art, "
             "sustainability features, and transit infrastructure support. "
-            "Reference Toronto's Official Plan policies on community benefits."
+            "Reference Toronto's Official Plan policies on community benefits.\n\n"
+            "Note: Section 37 of the Planning Act was replaced by the Community Benefits "
+            "Charge framework under Bill 108/197. Reference the current CBC framework.\n\n"
+            f"{_GROUNDING_INSTRUCTION}"
         ),
         "user_prompt_template": (
             "Generate a public benefit statement:\n\n"
@@ -281,18 +304,20 @@ DOCUMENT_TEMPLATES = {
             "{public_benefits}\n\n"
             "## Community Context\n"
             "{community_context}\n\n"
-            "Describe community contributions and Section 37 considerations."
+            "Describe community contributions and Community Benefits Charge considerations."
         ),
         "max_tokens": 3072,
     },
 
     "shadow_study": {
         "system_prompt": (
+            f"{SAFETY_PREAMBLE}\n\n"
             "You are generating Shadow Study Data for a development application. "
             "Present the shadow impact analysis: which neighboring properties are affected, "
             "duration of shadow at key times (March 21, June 21, September 21), "
             "and comparison to the as-of-right shadow. Reference Toronto's shadow study "
-            "requirements and Official Plan policies on sunlight access."
+            "requirements and Official Plan policies on sunlight access.\n\n"
+            f"{_GROUNDING_INSTRUCTION}"
         ),
         "user_prompt_template": (
             "Generate shadow study data:\n\n"

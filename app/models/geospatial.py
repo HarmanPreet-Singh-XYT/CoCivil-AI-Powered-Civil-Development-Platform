@@ -1,13 +1,19 @@
+from __future__ import annotations
+
 import uuid
 from datetime import datetime
-from typing import Optional
+from typing import TYPE_CHECKING, Optional
 
 from geoalchemy2 import Geometry
-from sqlalchemy import DateTime, Float, ForeignKey, Numeric, String, Text, UniqueConstraint, func
+from sqlalchemy import Boolean, DateTime, Float, ForeignKey, Numeric, String, UniqueConstraint, func
 from sqlalchemy.dialects.postgresql import JSON, UUID
 from sqlalchemy.orm import Mapped, mapped_column, relationship
 
 from .base import Base, TimestampMixin, UUIDPrimaryKey
+
+if TYPE_CHECKING:
+    from app.models.dataset import DatasetFeature
+    from app.models.ingestion import SourceSnapshot
 
 
 class Jurisdiction(Base, UUIDPrimaryKey):
@@ -17,7 +23,12 @@ class Jurisdiction(Base, UUIDPrimaryKey):
     province: Mapped[str] = mapped_column(String, nullable=False)
     country: Mapped[str] = mapped_column(String, nullable=False, default="CA", server_default="CA")
     bbox_geom = mapped_column(Geometry("Polygon", srid=4326), nullable=True)
-    timezone: Mapped[str] = mapped_column(String, nullable=False, default="America/Toronto", server_default="America/Toronto")
+    timezone: Mapped[str] = mapped_column(
+        String,
+        nullable=False,
+        default="America/Toronto",
+        server_default="America/Toronto",
+    )
     metadata_json: Mapped[Optional[dict]] = mapped_column(JSON, nullable=False, server_default="{}")
     created_at: Mapped[datetime] = mapped_column(DateTime(timezone=True), server_default=func.now())
 
@@ -27,11 +38,14 @@ class Jurisdiction(Base, UUIDPrimaryKey):
 class Parcel(Base, UUIDPrimaryKey, TimestampMixin):
     __tablename__ = "parcels"
     __table_args__ = (
-        UniqueConstraint("jurisdiction_id", "pin", name="uq_parcels_jurisdiction_pin"),
+        UniqueConstraint("jurisdiction_id", "pin", "source_snapshot_id", name="uq_parcels_jurisdiction_pin_snapshot"),
     )
 
     jurisdiction_id: Mapped[uuid.UUID] = mapped_column(
         UUID(as_uuid=True), ForeignKey("jurisdictions.id"), nullable=False, index=True
+    )
+    source_snapshot_id: Mapped[Optional[uuid.UUID]] = mapped_column(
+        UUID(as_uuid=True), ForeignKey("source_snapshots.id"), nullable=True, index=True
     )
     pin: Mapped[Optional[str]] = mapped_column(String, nullable=True, index=True)
     address: Mapped[Optional[str]] = mapped_column(String, nullable=True, index=True)
@@ -45,7 +59,12 @@ class Parcel(Base, UUIDPrimaryKey, TimestampMixin):
     zone_code: Mapped[Optional[str]] = mapped_column(String, nullable=True)
 
     jurisdiction: Mapped["Jurisdiction"] = relationship(back_populates="parcels")
+    source_snapshot: Mapped[Optional[SourceSnapshot]] = relationship(foreign_keys=[source_snapshot_id])
     metrics: Mapped[list["ParcelMetric"]] = relationship(back_populates="parcel")
+    addresses: Mapped[list["ParcelAddress"]] = relationship(back_populates="parcel", cascade="all, delete-orphan")
+    zoning_assignments: Mapped[list["ParcelZoningAssignment"]] = relationship(
+        back_populates="parcel", cascade="all, delete-orphan"
+    )
 
 
 class ParcelMetric(Base, UUIDPrimaryKey):
@@ -63,6 +82,71 @@ class ParcelMetric(Base, UUIDPrimaryKey):
     computed_at: Mapped[datetime] = mapped_column(DateTime(timezone=True), server_default=func.now())
 
     parcel: Mapped["Parcel"] = relationship(back_populates="metrics")
+
+
+class ParcelAddress(Base, UUIDPrimaryKey):
+    __tablename__ = "parcel_addresses"
+    __table_args__ = (
+        UniqueConstraint(
+            "source_snapshot_id",
+            "source_record_id",
+            name="uq_parcel_addresses_snapshot_source_record",
+        ),
+        UniqueConstraint(
+            "parcel_id",
+            "source_snapshot_id",
+            "address_text",
+            name="uq_parcel_addresses_parcel_snapshot_address",
+        ),
+    )
+
+    parcel_id: Mapped[uuid.UUID] = mapped_column(
+        UUID(as_uuid=True), ForeignKey("parcels.id", ondelete="CASCADE"), nullable=False, index=True
+    )
+    source_snapshot_id: Mapped[uuid.UUID] = mapped_column(
+        UUID(as_uuid=True), ForeignKey("source_snapshots.id"), nullable=False, index=True
+    )
+    source_record_id: Mapped[Optional[str]] = mapped_column(String, nullable=True)
+    address_text: Mapped[str] = mapped_column(String, nullable=False)
+    address_point_geom = mapped_column(Geometry("Point", srid=4326), nullable=True)
+    match_method: Mapped[str] = mapped_column(String, nullable=False)
+    match_confidence: Mapped[Optional[float]] = mapped_column(Float, nullable=True)
+    is_canonical: Mapped[bool] = mapped_column(Boolean, nullable=False, default=False, server_default="false")
+    created_at: Mapped[datetime] = mapped_column(DateTime(timezone=True), server_default=func.now())
+
+    parcel: Mapped["Parcel"] = relationship(back_populates="addresses")
+    source_snapshot: Mapped[SourceSnapshot] = relationship(foreign_keys=[source_snapshot_id])
+
+
+class ParcelZoningAssignment(Base, UUIDPrimaryKey):
+    __tablename__ = "parcel_zoning_assignments"
+    __table_args__ = (
+        UniqueConstraint(
+            "parcel_id",
+            "dataset_feature_id",
+            "source_snapshot_id",
+            name="uq_parcel_zoning_assignments_parcel_feature_snapshot",
+        ),
+    )
+
+    parcel_id: Mapped[uuid.UUID] = mapped_column(
+        UUID(as_uuid=True), ForeignKey("parcels.id", ondelete="CASCADE"), nullable=False, index=True
+    )
+    dataset_feature_id: Mapped[uuid.UUID] = mapped_column(
+        UUID(as_uuid=True), ForeignKey("dataset_features.id", ondelete="CASCADE"), nullable=False, index=True
+    )
+    source_snapshot_id: Mapped[uuid.UUID] = mapped_column(
+        UUID(as_uuid=True), ForeignKey("source_snapshots.id"), nullable=False, index=True
+    )
+    zone_code: Mapped[str] = mapped_column(String, nullable=False)
+    overlap_area_m2: Mapped[Optional[float]] = mapped_column(Float, nullable=True)
+    assignment_method: Mapped[str] = mapped_column(String, nullable=False)
+    is_primary: Mapped[bool] = mapped_column(Boolean, nullable=False, default=False, server_default="false")
+    created_at: Mapped[datetime] = mapped_column(DateTime(timezone=True), server_default=func.now())
+
+    parcel: Mapped["Parcel"] = relationship(back_populates="zoning_assignments")
+    dataset_feature: Mapped[DatasetFeature] = relationship(back_populates="zoning_assignments")
+    source_snapshot: Mapped[SourceSnapshot] = relationship(foreign_keys=[source_snapshot_id])
 
 
 class ProjectParcel(Base, UUIDPrimaryKey):

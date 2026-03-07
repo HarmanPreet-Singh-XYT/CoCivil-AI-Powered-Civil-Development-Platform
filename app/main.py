@@ -5,19 +5,18 @@ from fastapi.middleware.cors import CORSMiddleware
 from app import __version__
 from app.config import settings
 from app.middleware.request_id import RequestIDMiddleware
-from app.routers import (
-    entitlement,
-    exports,
-    finance,
-    health,
-    jobs,
-    parcels,
-    plans,
-    policy,
-    projects,
-    scenarios,
-    simulation,
-)
+from app.routers import entitlement as entitlement
+from app.routers import exports as exports
+from app.routers import finance as finance
+from app.routers import governance as governance
+from app.routers import health as health
+from app.routers import jobs as jobs
+from app.routers import parcels as parcels
+from app.routers import plans as plans
+from app.routers import policy as policy
+from app.routers import projects as projects
+from app.routers import scenarios as scenarios
+from app.routers import simulation as simulation
 
 structlog.configure(
     processors=[
@@ -57,6 +56,7 @@ def create_app() -> FastAPI:
     application.include_router(scenarios.router, prefix=prefix, tags=["scenarios"])
     application.include_router(simulation.router, prefix=prefix, tags=["simulation"])
     application.include_router(finance.router, prefix=prefix, tags=["finance"])
+    application.include_router(governance.router, prefix=prefix, tags=["governance"])
     application.include_router(entitlement.router, prefix=prefix, tags=["entitlement"])
     application.include_router(policy.router, prefix=prefix, tags=["policy"])
     application.include_router(exports.router, prefix=prefix, tags=["exports"])

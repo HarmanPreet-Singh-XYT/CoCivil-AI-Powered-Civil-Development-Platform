@@ -3,6 +3,7 @@ import uuid
 from sqlalchemy import select
 from sqlalchemy.ext.asyncio import AsyncSession
 
+from app.models.entitlement import EntitlementResult, PrecedentSearch
 from app.models.export import ExportJob
 from app.models.finance import FinancialRun
 from app.models.ingestion import IngestionJob
@@ -15,6 +16,8 @@ JOB_TABLES = [
     ("scenario_run", ScenarioRun),
     ("layout_run", LayoutRun),
     ("financial_run", FinancialRun),
+    ("entitlement_result", EntitlementResult),
+    ("precedent_search", PrecedentSearch),
     ("export_job", ExportJob),
     ("ingestion_job", IngestionJob),
     ("development_plan", DevelopmentPlan),
@@ -33,7 +36,12 @@ async def get_job_status(db: AsyncSession, job_id: uuid.UUID) -> JobStatusRespon
                 status=row.status,
                 started_at=getattr(row, "started_at", None),
                 completed_at=getattr(row, "completed_at", None),
-                result=getattr(row, "result_json", None) or getattr(row, "output_json", None),
+                result=(
+                    getattr(row, "result_json", None)
+                    or getattr(row, "output_json", None)
+                    or getattr(row, "results_json", None)
+                    or getattr(row, "applied_controls_json", None)
+                ),
                 error_message=getattr(row, "error_message", None),
             )
     return None

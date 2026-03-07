@@ -1,17 +1,60 @@
 import uuid
+from typing import Any
 
 from fastapi import APIRouter, Depends, HTTPException, status
-from sqlalchemy import select
+from sqlalchemy import or_, select
 from sqlalchemy.ext.asyncio import AsyncSession
+from sqlalchemy.orm import selectinload
 
 from app.config import settings
 from app.dependencies import get_current_user, get_db_session, get_optional_idempotency_key
-from app.models.finance import FinancialRun
+from app.models.finance import FinancialAssumptionSet, FinancialRun
 from app.schemas.common import JobAccepted
-from app.schemas.finance import FinancialRunRequest, FinancialRunResponse
+from app.schemas.finance import (
+    FinancialAssumptionSetReferenceResponse,
+    FinancialRunRequest,
+    FinancialRunResponse,
+)
+from app.services.thin_slice_runtime import ensure_reference_data, validate_financial_assumptions
 from app.tasks.finance import run_financial_analysis
 
 router = APIRouter()
+
+
+def _serialize_assumption_set(
+    assumption_set: FinancialAssumptionSet | None,
+) -> FinancialAssumptionSetReferenceResponse | None:
+    if assumption_set is None:
+        return None
+    return FinancialAssumptionSetReferenceResponse.model_validate(
+        {
+            "id": assumption_set.id,
+            "organization_id": assumption_set.organization_id,
+            "name": assumption_set.name,
+            "is_default": assumption_set.is_default,
+            "assumptions_json": validate_financial_assumptions(assumption_set),
+            "created_at": assumption_set.created_at,
+        }
+    )
+
+
+def _serialize_financial_run(run: FinancialRun) -> dict[str, Any]:
+    return {
+        "id": run.id,
+        "scenario_run_id": run.scenario_run_id,
+        "assumption_set_id": run.assumption_set_id,
+        "layout_run_id": run.layout_run_id,
+        "status": run.status,
+        "total_revenue": run.total_revenue,
+        "total_cost": run.total_cost,
+        "noi": run.noi,
+        "valuation": run.valuation,
+        "residual_land_value": run.residual_land_value,
+        "irr_pct": run.irr_pct,
+        "output_json": run.output_json or None,
+        "assumption_set": _serialize_assumption_set(run.assumption_set),
+        "created_at": run.created_at,
+    }
 
 
 @router.post(
@@ -24,6 +67,20 @@ async def create_financial_run(
     user: dict = Depends(get_current_user),
     idempotency_key: str | None = Depends(get_optional_idempotency_key),
 ):
+    if body.assumption_set_id is not None:
+        result = await db.execute(
+            select(FinancialAssumptionSet).where(FinancialAssumptionSet.id == body.assumption_set_id)
+        )
+        assumption_set = result.scalar_one_or_none()
+        if assumption_set is None:
+            raise HTTPException(status_code=404, detail="Financial assumption set not found")
+        if assumption_set.organization_id not in (None, user["organization_id"]):
+            raise HTTPException(status_code=404, detail="Financial assumption set not found")
+        try:
+            validate_financial_assumptions(assumption_set)
+        except ValueError as exc:
+            raise HTTPException(status_code=422, detail=str(exc)) from exc
+
     run = FinancialRun(
         scenario_run_id=scenario_id,
         assumption_set_id=body.assumption_set_id,
@@ -47,8 +104,30 @@ async def get_financial_run(
     run_id: uuid.UUID,
     db: AsyncSession = Depends(get_db_session),
 ):
-    result = await db.execute(select(FinancialRun).where(FinancialRun.id == run_id))
+    result = await db.execute(
+        select(FinancialRun).options(selectinload(FinancialRun.assumption_set)).where(FinancialRun.id == run_id)
+    )
     run = result.scalar_one_or_none()
     if not run:
         raise HTTPException(status_code=404, detail="Financial run not found")
-    return run
+    return _serialize_financial_run(run)
+
+
+@router.get("/reference/financial-assumption-sets", response_model=list[FinancialAssumptionSetReferenceResponse])
+async def list_financial_assumption_sets(
+    db: AsyncSession = Depends(get_db_session),
+    user: dict = Depends(get_current_user),
+):
+    await db.run_sync(ensure_reference_data)
+    result = await db.execute(
+        select(FinancialAssumptionSet)
+        .where(
+            or_(
+                FinancialAssumptionSet.organization_id.is_(None),
+                FinancialAssumptionSet.organization_id == user["organization_id"],
+            )
+        )
+        .order_by(FinancialAssumptionSet.is_default.desc(), FinancialAssumptionSet.name.asc())
+    )
+    assumption_sets = result.scalars().all()
+    return [_serialize_assumption_set(assumption_set) for assumption_set in assumption_sets]

@@ -28,6 +28,7 @@ async def create_scenario(
         parent_scenario_id=body.parent_scenario_id,
         scenario_type=body.scenario_type,
         input_hash=input_hash,
+        snapshot_manifest_id=body.snapshot_manifest_id,
         status="pending",
     )
     db.add(scenario)

@@ -288,4 +288,6 @@ alembic revision --autogenerate -m "description"
 ## Related Docs
 
 - [Implementation Plan](./IMPLEMENTATION_PLAN.md) — full technical spec with schema DDL, algorithms, and phase breakdown
+- [Data Plan](./DATA_PLAN.md) — reality-checked MVP data plan, source priorities, pipeline flow, and schema gaps
+- [Track 5-6 Research](./TRACK_5_6_RESEARCH.md) — focused research notes for simulation defaults and precedent/permit data
 - [Backend Analysis](./arterial_backend_clone_analysis.md) — analysis of the Arterial product architecture

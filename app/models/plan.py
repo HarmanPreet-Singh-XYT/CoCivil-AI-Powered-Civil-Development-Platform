@@ -88,5 +88,15 @@ class SubmissionDocument(Base, UUIDPrimaryKey, TimestampMixin):
 
     sort_order: Mapped[int] = mapped_column(Integer, default=0)
 
+    # Review workflow
+    review_status: Mapped[str] = mapped_column(String(50), default="draft")
+    # Review statuses: draft → under_review → approved / rejected
+    reviewed_by: Mapped[uuid.UUID | None] = mapped_column(
+        UUID(as_uuid=True), ForeignKey("users.id"), nullable=True
+    )
+    reviewed_at: Mapped[datetime | None] = mapped_column(DateTime(timezone=True), nullable=True)
+    review_notes: Mapped[str | None] = mapped_column(Text, nullable=True)
+    disclaimer_accepted: Mapped[bool] = mapped_column(default=False)
+
     # Relationship
     plan: Mapped["DevelopmentPlan"] = relationship(back_populates="documents")

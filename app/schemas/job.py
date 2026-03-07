@@ -10,5 +10,5 @@ class JobStatusResponse(BaseModel):
     status: str
     started_at: datetime | None = None
     completed_at: datetime | None = None
-    result: dict | None = None
+    result: dict | list | None = None
     error_message: str | None = None

@@ -1,0 +1,34 @@
+[
+  {
+    "benchmark_id": "toronto-core-template-001",
+    "verification_status": "template",
+    "source_notes": "Candidate benchmark seed for address-to-parcel and zoning verification. Requires manual verification against Toronto parcel/address and zoning sources before counting toward QA metrics.",
+    "address_input": "100 Queen St W, Toronto, ON",
+    "expected_parcel": {
+      "address": "100 Queen St W, Toronto, ON"
+    }
+  },
+  {
+    "benchmark_id": "toronto-core-template-002",
+    "verification_status": "template",
+    "source_notes": "Candidate benchmark seed for parcel-to-policy-stack verification. Requires manually checked citations before promotion to verified.",
+    "address_input": "483 Bay St, Toronto, ON",
+    "expected_policy_stack": {
+      "required_documents": [
+        "Zoning By-law 569-2013"
+      ],
+      "required_sections": []
+    }
+  },
+  {
+    "benchmark_id": "toronto-core-template-003",
+    "verification_status": "template",
+    "source_notes": "Candidate benchmark seed for scenario validation. Requires planner-reviewed expected constraints and metrics before promotion to verified.",
+    "address_input": "111 Richmond St W, Toronto, ON",
+    "expected_scenario": {
+      "scenario_type": "base",
+      "expected_constraints": [],
+      "expected_metrics": {}
+    }
+  }
+]

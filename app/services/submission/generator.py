@@ -1,7 +1,8 @@
 import structlog
 
 from app.ai.base import AIProvider
-from app.services.submission.templates import DOCUMENT_TEMPLATES
+from app.services.submission.citation_verifier import strip_unverified_citations, verify_citations
+from app.services.submission.templates import DOCUMENT_TEMPLATES, SAFETY_PREAMBLE
 
 logger = structlog.get_logger()
 
@@ -12,6 +13,9 @@ class SubmissionPackageGenerator:
     Takes the results from each pipeline stage (parcel data, policy stack,
     massing, layout, finance, entitlement, precedents) and generates
     professional submission documents using AI + structured templates.
+
+    Every document is prepended with the SAFETY_PREAMBLE and post-processed
+    through citation verification.
     """
 
     def __init__(self, ai_provider: AIProvider):
@@ -22,7 +26,7 @@ class SubmissionPackageGenerator:
 
         Args:
             doc_type: Type of document (planning_rationale, compliance_matrix, etc.)
-            context: Pipeline results and parameters
+            context: Pipeline results and parameters (from context_builder)
 
         Returns:
             dict with 'content_text', 'content_json', and 'metadata'
@@ -42,12 +46,35 @@ class SubmissionPackageGenerator:
             max_tokens=template.get("max_tokens", 4096),
         )
 
+        content = response.content
+
+        # Post-process: verify citations in AI-generated text
+        citation_issues = verify_citations(content)
+        if citation_issues:
+            logger.warning(
+                "submission.citation_issues",
+                doc_type=doc_type,
+                issue_count=len(citation_issues),
+                sections=[i.cited_section for i in citation_issues],
+            )
+            content = strip_unverified_citations(content, citation_issues)
+
+        # Prepend safety preamble to all generated content
+        content = f"> {SAFETY_PREAMBLE}\n\n---\n\n{content}"
+
+        # For compliance_matrix, the table is already in the context —
+        # append it after the AI narrative if not already present
+        if doc_type == "compliance_matrix":
+            compliance_table = context.get("compliance_summary", "")
+            if compliance_table and compliance_table not in content:
+                content = f"{content}\n\n## Compliance Matrix\n\n{compliance_table}"
+
         # For structured documents, also generate JSON
         content_json = None
         if template.get("structured_output"):
             try:
                 content_json = await self.ai.generate_structured(
-                    prompt=f"Convert this document into structured JSON:\n\n{response.content}",
+                    prompt=f"Convert this document into structured JSON:\n\n{content}",
                     schema=template["structured_output"],
                     system="Extract the key data points into the provided JSON schema.",
                 )
@@ -55,13 +82,15 @@ class SubmissionPackageGenerator:
                 logger.warning("submission.json_extraction_failed", doc_type=doc_type, error=str(e))
 
         return {
-            "content_text": response.content,
+            "content_text": content,
             "content_json": content_json,
             "metadata": {
                 "ai_provider": "configured",
                 "ai_model": response.model,
                 "input_tokens": response.usage.get("input_tokens", 0),
                 "output_tokens": response.usage.get("output_tokens", 0),
+                "citation_issues": len(citation_issues),
+                "safety_preamble_included": True,
             },
         }
 
@@ -69,7 +98,7 @@ class SubmissionPackageGenerator:
         """Generate all submission documents for a development plan.
 
         Args:
-            context: Complete pipeline results
+            context: Complete pipeline results (from context_builder)
 
         Returns:
             List of document dicts with doc_type, content_text, content_json
@@ -83,9 +112,12 @@ class SubmissionPackageGenerator:
                 logger.error("submission.document_failed", doc_type=doc_type, error=str(e))
                 documents.append({
                     "doc_type": doc_type,
-                    "content_text": f"Error generating {doc_type}: {e}",
+                    "content_text": (
+                        f"> {SAFETY_PREAMBLE}\n\n---\n\n"
+                        f"Error generating {doc_type}: {e}"
+                    ),
                     "content_json": None,
-                    "metadata": {"error": str(e)},
+                    "metadata": {"error": str(e), "safety_preamble_included": True},
                 })
         return documents
 

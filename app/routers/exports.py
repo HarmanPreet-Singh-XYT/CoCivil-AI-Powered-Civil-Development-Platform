@@ -31,7 +31,11 @@ async def create_export(
     await db.flush()
     await db.refresh(export)
 
-    run_export.delay(str(export.id), str(body.project_id), {"export_type": body.export_type})
+    run_export.delay(
+        str(export.id),
+        str(body.project_id),
+        {"export_type": body.export_type, "source_controls": body.source_controls or []},
+    )
 
     return JobAccepted(
         job_id=export.id,
