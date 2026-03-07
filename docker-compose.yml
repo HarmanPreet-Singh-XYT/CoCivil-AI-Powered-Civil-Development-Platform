@@ -38,47 +38,6 @@ services:
     volumes:
       - minio_data:/data
 
-  api:
-    build: .
-    command: uvicorn app.main:app --host 0.0.0.0 --port 8000 --reload
-    ports:
-      - "8000:8000"
-    volumes:
-      - .:/app
-    env_file:
-      - .env.example
-    depends_on:
-      db:
-        condition: service_healthy
-      redis:
-        condition: service_healthy
-
-  worker:
-    build: .
-    command: celery -A app.worker:celery_app worker --loglevel=info
-    volumes:
-      - .:/app
-    env_file:
-      - .env.example
-    depends_on:
-      db:
-        condition: service_healthy
-      redis:
-        condition: service_healthy
-
-  beat:
-    build: .
-    command: celery -A app.worker:celery_app beat --loglevel=info
-    volumes:
-      - .:/app
-    env_file:
-      - .env.example
-    depends_on:
-      db:
-        condition: service_healthy
-      redis:
-        condition: service_healthy
-
 volumes:
   pgdata:
   minio_data:

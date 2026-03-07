@@ -7,17 +7,26 @@
 ## Quick Start
 
 ```bash
-# 1. Start all services
-docker compose up --build
+# 1. Copy local config once
+cp .env.example .env
 
-# 2. Run database migrations
-docker compose exec api alembic upgrade head
+# 2. Start local infrastructure
+make infra-up
 
-# 3. Verify
+# 3. Verify targets and connectivity
+make doctor
+
+# 4. Run database migrations
+make migrate
+
+# 5. Start the API in another terminal
+make run-api
+
+# 6. Verify
 curl http://localhost:8000/api/v1/health
 # → {"status":"healthy","database":"ok","redis":"ok","version":"0.1.0"}
 
-# 4. Browse API docs
+# 7. Browse API docs
 open http://localhost:8000/docs
 ```
 
@@ -41,12 +50,12 @@ open http://localhost:8000/docs
 
 | Service | Port | Purpose |
 |---------|------|---------|
-| API | 8000 | FastAPI application server |
+| API | 8000 | FastAPI application server (local by default) |
 | PostgreSQL + PostGIS | 5432 | Spatial database with vector search |
 | Redis | 6379 | Cache, message broker, idempotency store |
 | MinIO | 9000 / 9001 | S3-compatible document and artifact storage |
-| Celery Worker | — | Async job processing |
-| Celery Beat | — | Scheduled task runner |
+| Celery Worker | — | Async job processing (local by default) |
+| Celery Beat | — | Optional scheduled task runner |
 
 ---
 
@@ -68,8 +77,10 @@ Hack_Canada/
 │   └── tasks/                # Celery task stubs (massing, layout, etc.)
 ├── alembic/                  # Database migrations
 ├── tests/                    # Pytest async test suite
-├── scripts/                  # DB init scripts
-├── docker-compose.yml        # Full dev stack (6 services)
+├── scripts/                  # Dev, seed, and audit entrypoints
+├── docker-compose.yml        # Infra-only compose (db, redis, minio)
+├── docker-compose.app.yml    # Optional containerized app services
+├── Makefile                  # Blessed local dev commands
 ├── Dockerfile                # Python 3.11 + GDAL/GEOS/PROJ
 └── pyproject.toml            # PEP 621 project config
 ```
@@ -229,18 +240,18 @@ Client                    API                     Celery Worker
 
 ## Configuration
 
-All settings via environment variables (see `.env.example`):
+Local development reads `.env`. `.env.example` is a template for `.env`, not a live runtime env file for containerized app services.
 
 | Variable | Default | Purpose |
 |----------|---------|---------|
-| `DATABASE_URL` | `postgresql+asyncpg://arterial:arterial@db:5432/arterial` | Async DB connection |
-| `DATABASE_URL_SYNC` | `postgresql+psycopg2://arterial:arterial@db:5432/arterial` | Sync DB (Celery/Alembic) |
-| `REDIS_URL` | `redis://redis:6379/0` | Cache and idempotency |
-| `S3_ENDPOINT_URL` | `http://minio:9000` | Object storage |
+| `DATABASE_URL` | `postgresql+asyncpg://arterial:arterial@localhost:5432/arterial` | Async DB connection |
+| `DATABASE_URL_SYNC` | `postgresql+psycopg2://arterial:arterial@localhost:5432/arterial` | Sync DB (Celery/Alembic) |
+| `REDIS_URL` | `redis://localhost:6379/0` | Cache and idempotency |
+| `S3_ENDPOINT_URL` | `http://localhost:9000` | Object storage |
 | `S3_ACCESS_KEY` / `S3_SECRET_KEY` | `minioadmin` | MinIO credentials |
 | `JWT_SECRET_KEY` | `change-me-in-production` | Auth token signing |
-| `CELERY_BROKER_URL` | `redis://redis:6379/1` | Task queue broker |
-| `CELERY_RESULT_BACKEND` | `redis://redis:6379/2` | Task result store |
+| `CELERY_BROKER_URL` | `redis://localhost:6379/1` | Task queue broker |
+| `CELERY_RESULT_BACKEND` | `redis://localhost:6379/2` | Task result store |
 | `API_V1_PREFIX` | `/api/v1` | API route prefix |
 
 ---
@@ -248,20 +259,40 @@ All settings via environment variables (see `.env.example`):
 ## Development
 
 ```bash
-# Install locally (for IDE support, linting, tests)
+# Install locally
 pip install -e ".[dev]"
 
-# Run tests
-pytest tests/
+# Start infra
+make infra-up
 
-# Lint
-ruff check app/ tests/
+# Verify connectivity
+make doctor
+
+# Run the API / worker / frontend locally
+make run-api
+make run-worker
+make run-frontend
 
 # Run migrations
-alembic upgrade head
+make migrate
 
-# Generate new migration after model changes
-alembic revision --autogenerate -m "description"
+# Seed and audit Toronto data
+make seed-toronto
+make seed-policies
+make audit-toronto
+
+# Run tests
+make test-backend
+make test-frontend
+```
+
+Optional full-container app mode:
+
+```bash
+docker compose -f docker-compose.yml -f docker-compose.app.yml up --build api worker
+
+# If you need the scheduler too
+docker compose -f docker-compose.yml -f docker-compose.app.yml --profile scheduler up beat
 ```
 
 ---
@@ -270,7 +301,7 @@ alembic revision --autogenerate -m "description"
 
 | Component | Status | Notes |
 |-----------|--------|-------|
-| Docker stack | Done | All 6 services boot cleanly |
+| Docker stack | Done | Infra-only by default; optional app compose available |
 | Database schema | Done | 34 tables with spatial + vector indexes |
 | API routing | Done | 29 endpoints, Swagger docs |
 | Auth | **Stubbed** | Returns mock user; real JWT next |
