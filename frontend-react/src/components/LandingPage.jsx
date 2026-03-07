@@ -1,4 +1,5 @@
 import { useState, useEffect, useRef, useCallback } from 'react';
+import { useAuth0 } from '@auth0/auth0-react';
 import maplibregl from 'maplibre-gl';
 
 const QUERIES = [
@@ -48,11 +49,30 @@ function useTypewriter(strings, typingSpeed = 45, pauseTime = 2200, erasingSpeed
     return displayText;
 }
 
-export default function LandingPage({ onNavigate, onSignIn, onLogout }) {
+export default function LandingPage({ onNavigate }) {
+    const {
+        isLoading,
+        isAuthenticated,
+        error,
+        loginWithRedirect: login,
+        logout: auth0Logout,
+        user,
+    } = useAuth0();
+
     const mapPreviewRef = useRef(null);
     const mapInstanceRef = useRef(null);
     const [address, setAddress] = useState('');
     const typedText = useTypewriter(QUERIES);
+
+    const signup = useCallback(
+        () => login({ authorizationParams: { screen_hint: 'signup' } }),
+        [login]
+    );
+
+    const logout = useCallback(
+        () => auth0Logout({ logoutParams: { returnTo: window.location.origin } }),
+        [auth0Logout]
+    );
 
     // Enable scrolling on body when landing page is active
     useEffect(() => {
@@ -119,12 +139,42 @@ export default function LandingPage({ onNavigate, onSignIn, onLogout }) {
                         application<span>AI</span>
                     </div>
                     <div className="lp-nav-actions">
-                        {localStorage.getItem('token') ? (
-                            <button className="lp-nav-link" onClick={onLogout}>Sign Out</button>
+                        {isLoading ? (
+                            <span className="lp-nav-link lp-nav-loading">Loading…</span>
+                        ) : isAuthenticated ? (
+                            <>
+                                {user?.picture && (
+                                    <img
+                                        src={user.picture}
+                                        alt={user.name}
+                                        className="lp-nav-avatar"
+                                    />
+                                )}
+                                <span className="lp-nav-greeting">
+                                    {user?.name || user?.email}
+                                </span>
+                                <button className="lp-nav-link" onClick={logout}>
+                                    Sign Out
+                                </button>
+                            </>
                         ) : (
-                            <button className="lp-nav-link" onClick={onSignIn}>Sign In</button>
+                            <>
+                                {error && (
+                                    <span className="lp-nav-error">
+                                        {error.message}
+                                    </span>
+                                )}
+                                <button className="lp-nav-link" onClick={login}>
+                                    Sign In
+                                </button>
+                                <button className="lp-nav-link" onClick={signup}>
+                                    Sign Up
+                                </button>
+                            </>
                         )}
-                        <button className="lp-nav-cta" onClick={() => onNavigate('')}>Try Demo</button>
+                        <button className="lp-nav-cta" onClick={() => onNavigate('')}>
+                            Try Demo
+                        </button>
                     </div>
                 </div>
             </nav>
@@ -141,7 +191,8 @@ export default function LandingPage({ onNavigate, onSignIn, onLogout }) {
                             </h1>
                         </div>
                         <p className="lp-motto">
-                            The intelligence layer between policy and design. We read the city's rules so you don't have to.
+                            The intelligence layer between policy and design. We read the
+                            city's rules so you don't have to.
                         </p>
                     </div>
 
@@ -154,7 +205,13 @@ export default function LandingPage({ onNavigate, onSignIn, onLogout }) {
 
                         {/* Address input */}
                         <form className="lp-address-bar" onSubmit={handleSubmit}>
-                            <svg className="lp-address-icon" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2">
+                            <svg
+                                className="lp-address-icon"
+                                viewBox="0 0 24 24"
+                                fill="none"
+                                stroke="currentColor"
+                                strokeWidth="2"
+                            >
                                 <circle cx="11" cy="11" r="8" />
                                 <line x1="21" y1="21" x2="16.65" y2="16.65" />
                             </svg>
@@ -172,7 +229,12 @@ export default function LandingPage({ onNavigate, onSignIn, onLogout }) {
 
                 {/* Scroll hint */}
                 <div className="lp-scroll-hint">
-                    <svg viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="1.5">
+                    <svg
+                        viewBox="0 0 24 24"
+                        fill="none"
+                        stroke="currentColor"
+                        strokeWidth="1.5"
+                    >
                         <polyline points="6 9 12 15 18 9" />
                     </svg>
                 </div>
@@ -186,11 +248,13 @@ export default function LandingPage({ onNavigate, onSignIn, onLogout }) {
                         We started where every developer starts — buried in PDFs.
                     </h2>
                     <p className="lp-section-body">
-                        Zoning bylaws scattered across hundreds of pages. Official Plan policies in one tab,
-                        setback tables in another, heritage overlays in a third. Hours wasted before a single
-                        sketch is drawn. We built applicationAI because we lived this problem — and because
-                        we knew AI could solve it. Our platform reads the city's rules so you don't have to,
-                        turning weeks of due diligence into minutes of conversation.
+                        Zoning bylaws scattered across hundreds of pages. Official Plan
+                        policies in one tab, setback tables in another, heritage overlays
+                        in a third. Hours wasted before a single sketch is drawn. We built
+                        applicationAI because we lived this problem — and because we knew
+                        AI could solve it. Our platform reads the city's rules so you
+                        don't have to, turning weeks of due diligence into minutes of
+                        conversation.
                     </p>
                 </div>
             </section>
@@ -203,10 +267,12 @@ export default function LandingPage({ onNavigate, onSignIn, onLogout }) {
                         A world where building the right thing is the easy thing.
                     </h2>
                     <p className="lp-section-body">
-                        Every city has rules. Most are written for lawyers, not builders. We envision a future
-                        where any developer, architect, or planner can instantly understand what's possible on
-                        any parcel — and make smarter decisions from day one. applicationAI is the intelligence
-                        layer between policy and design, making cities faster to build and better to live in.
+                        Every city has rules. Most are written for lawyers, not builders.
+                        We envision a future where any developer, architect, or planner
+                        can instantly understand what's possible on any parcel — and make
+                        smarter decisions from day one. applicationAI is the intelligence
+                        layer between policy and design, making cities faster to build and
+                        better to live in.
                     </p>
                 </div>
             </section>
