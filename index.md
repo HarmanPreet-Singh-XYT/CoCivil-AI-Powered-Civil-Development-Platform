@@ -1,4 +1,4 @@
-# Arterial Platform — Full Codebase Index
+# ApplicationAI Platform — Full Codebase Index
 
 > **Auto-maintained**: This file is updated automatically after any file edit or creation. See `.claude/CLAUDE.md` for update rules.
 > **Last updated**: 2026-03-08 | **PRD**: [`.claude/docs/PRD.md`](.claude/docs/PRD.md)
@@ -38,11 +38,11 @@
 
 ## Project Overview
 
-**Arterial** — Land-development due diligence platform for Toronto/Ontario. Generates planning submission packages (planning rationale, compliance matrix, precedent report, etc.) from plain-English development queries.
+**ApplicationAI** — Land-development due diligence platform for Toronto/Ontario. Generates planning submission packages (planning rationale, compliance matrix, precedent report, etc.) from plain-English development queries.
 
 | Attribute | Value |
 |-----------|-------|
-| App Name | `arterial` v0.1.0 |
+| App Name | `applicationai` v0.1.0 |
 | Backend | FastAPI + SQLAlchemy async + PostgreSQL + PostGIS |
 | Background Tasks | threading (in-process) |
 | Frontend | React 19 + Vite |
@@ -472,6 +472,7 @@ activeNav, savedParcels, showHistory, searchHistory (localStorage per user)
 | `src/components/ChatPanel.jsx` | AI assistant + file upload | Chat with backend `/assistant/chat`. Plan generation polling (30 attempts × 3s) with contractor recommendations on completion. Smart doc generation routing: ≤3 docs from existing plan → regenerate endpoint, else → full pipeline. File upload (PDF/img/xlsx/csv, 50MB max). Upload polling (40 attempts × 3s). `parseChatCommand()` regex for special commands. Drag-and-drop. |
 | `src/components/LandingPage.jsx` | Marketing homepage | Auth0 login/logout. Typewriter effect (10 dev queries, 45ms/char). MapLibre preview. Hero → Story → Vision → Footer. |
 | `src/components/UserBubble.jsx` | Animated user bubble (bottom-right) | Hover expand (44px→260px, 0.45s). Breathing pulse. User avatar + online dot + sign out. |
+| `src/components/InfrastructureLayerControl.jsx` | Infrastructure data layer toggle panel | Toggleable panel with categorized checkboxes for Roads (reconstruction), Water System (watermains, hydrants, valves, fittings, drinking sources, distribution), and EV Charging layers. Lazy-loads GeoJSON on first toggle, caches data, manages MapLibre sources/layers. Popups on point features. |
 | `src/components/LoginPage.jsx` | Legacy login form | **Unused** — replaced by Auth0. Still in codebase. |
 
 ---
@@ -728,4 +729,4 @@ Full table — all routes across all routers:
 
 ---
 
-*Last updated: 2026-03-08 (27-document catalog: AI generation wiring, compliance engine fixes (O.Reg 462/24, Bill 185), 17 new doc types, assistant doc_types routing, on-demand regeneration endpoint, document gallery/viewer UI, DOCX download/export)*
+*Last updated: 2026-03-08 (27-document catalog: AI generation wiring, compliance engine fixes (O.Reg 462/24, Bill 185), 17 new doc types, assistant doc_types routing, on-demand regeneration endpoint, document gallery/viewer UI, DOCX download/export; PRD link added)*

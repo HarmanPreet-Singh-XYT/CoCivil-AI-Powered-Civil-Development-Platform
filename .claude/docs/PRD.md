@@ -1,14 +1,14 @@
-# PRD: Arterial — Land-Development Due Diligence Platform
+# PRD: ApplicationAI — Land-Development Due Diligence Platform
 
 > **Last updated**: 2026-03-08
 > **Status**: MVP (v0.1.0) — Toronto / Ontario jurisdiction
-> **Platform name**: Arterial
+> **Platform name**: ApplicationAI
 
 ---
 
 ## 1. Executive Summary
 
-Arterial is a full-stack land-development due diligence platform that transforms a plain-English development query into a structured, source-backed submission package. It combines deterministic zoning compliance, AI-assisted policy extraction, 3D massing visualization, 2D floor-plan editing with OBC compliance checks, financial pro-forma modeling, precedent research, and entitlement-pathway classification — all within a single authenticated workspace.
+ApplicationAI is a full-stack land-development due diligence platform that transforms a plain-English development query into a structured, source-backed submission package. It combines deterministic zoning compliance, AI-assisted policy extraction, 3D massing visualization, 2D floor-plan editing with OBC compliance checks, financial pro-forma modeling, precedent research, and entitlement-pathway classification — all within a single authenticated workspace.
 
 The system is built for speed and defensibility: compliance rules are deterministic (no AI), AI is constrained to cite only sources provided in context, and every output is versioned and auditable.
 
@@ -477,4 +477,4 @@ Each skill cites only specific reference files — no broad internet search. Thi
 
 ---
 
-*This PRD reflects the platform as of v0.1.0 (2026-03-08). It supersedes the earlier "Buildability Intelligence Pipeline" PRD which described the pre-MVP pipeline concept.*
+*This PRD reflects the platform as of v0.1.0 (2026-03-08). Platform renamed from Arterial to ApplicationAI. Supersedes the earlier "Buildability Intelligence Pipeline" PRD which described the pre-MVP pipeline concept.*
