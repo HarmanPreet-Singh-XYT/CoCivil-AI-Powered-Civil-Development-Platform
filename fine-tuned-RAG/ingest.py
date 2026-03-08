@@ -1,12 +1,14 @@
 """
 ingest.py - Document ingestion pipeline for the Hack Canada RAG system.
 
-Walks the DOCS_DIR, extracts text from PDFs/MD/JSON, captions PNGs via GPT-4o Vision,
-chunks everything, and stores embeddings in ChromaDB.
+Walks all configured document directories, extracts text from PDFs/MD/JSON,
+captions PNGs via GPT-4o Vision, chunks everything, and stores embeddings in ChromaDB.
 
 Usage:
-    python ingest.py              # Full ingestion
+    python ingest.py              # Full ingestion (all directories)
     python ingest.py --png-only   # Only process PNG files (for re-captioning)
+    python ingest.py --add        # Add to existing ChromaDB (don't wipe)
+    python ingest.py --dir ../water-policy  # Ingest a specific directory only
 """
 import os
 import sys
@@ -24,7 +26,7 @@ from langchain_chroma import Chroma
 from langchain_core.documents import Document
 
 from config import (
-    DOCS_DIR, CHROMA_DIR, CHUNK_SIZE, CHUNK_OVERLAP,
+    DOCS_DIR, ALL_DOCS_DIRS, CHROMA_DIR, CHUNK_SIZE, CHUNK_OVERLAP,
     COLLECTION_NAME, EMBEDDING_MODEL, OPENAI_API_KEY
 )
 
@@ -123,137 +125,166 @@ def caption_png(path: str, client: OpenAI) -> str:
 # Document loader
 # ---------------------------------------------------------------------------
 
-def load_all_documents(png_only: bool = False) -> Generator[Document, None, None]:
-    """Walk DOCS_DIR and yield LangChain Documents."""
-    docs_path = Path(DOCS_DIR)
-    if not docs_path.exists():
-        print(f"❌ DOCS_DIR not found: {DOCS_DIR}")
-        sys.exit(1)
+def load_all_documents(
+    docs_dirs: list[str] | None = None,
+    png_only: bool = False,
+) -> Generator[Document, None, None]:
+    """Walk one or more document directories and yield LangChain Documents."""
+    if docs_dirs is None:
+        docs_dirs = ALL_DOCS_DIRS
 
     openai_client = OpenAI(api_key=OPENAI_API_KEY) if OPENAI_API_KEY else None
     file_count = 0
 
-    for root, dirs, files in os.walk(docs_path):
-        for filename in sorted(files):
-            filepath = os.path.join(root, filename)
-            rel_path = os.path.relpath(filepath, DOCS_DIR)
-            ext = os.path.splitext(filename)[1].lower()
+    for docs_dir in docs_dirs:
+        docs_path = Path(docs_dir)
+        if not docs_path.exists():
+            print(f"⚠ Directory not found, skipping: {docs_dir}")
+            continue
 
-            # Skip hidden files
-            if filename.startswith("."):
-                continue
+        dir_label = docs_path.name
+        print(f"\n📂 Scanning: {docs_dir}")
 
-            # PNG only mode
-            if png_only and ext != ".png":
-                continue
+        for root, dirs, files in os.walk(docs_path):
+            for filename in sorted(files):
+                filepath = os.path.join(root, filename)
+                rel_path = os.path.relpath(filepath, docs_dir)
+                # Prefix source with directory name for disambiguation
+                source_path = f"{dir_label}/{rel_path}"
+                ext = os.path.splitext(filename)[1].lower()
 
-            # Skip non-PNG in normal mode if flagged
-            if not png_only and ext in (".ds_store",):
-                continue
-
-            file_count += 1
-            print(f"  [{file_count}] Processing: {rel_path} ({ext})")
-
-            if ext == ".pdf":
-                pages = pdf_to_text(filepath)
-                if not pages:
-                    print(f"       → No text extracted")
-                    continue
-                for page_data in pages:
-                    yield Document(
-                        page_content=page_data["text"],
-                        metadata={
-                            "source": rel_path,
-                            "source_type": "pdf",
-                            "page": page_data["page"],
-                            "filename": filename
-                        }
-                    )
-                print(f"       → {len(pages)} pages extracted")
-
-            elif ext in (".md", ".txt"):
-                text = md_to_text(filepath)
-                if text.strip():
-                    yield Document(
-                        page_content=text,
-                        metadata={
-                            "source": rel_path,
-                            "source_type": "markdown",
-                            "filename": filename
-                        }
-                    )
-                    print(f"       → {len(text)} chars")
-
-            elif ext == ".json":
-                # Skip very large JSON files (>50MB) to avoid memory issues
-                fsize = os.path.getsize(filepath)
-                if fsize > 50_000_000:
-                    print(f"       → Skipping (too large: {fsize / 1e6:.0f}MB)")
-                    continue
-                text = json_to_text(filepath)
-                if text.strip():
-                    yield Document(
-                        page_content=text,
-                        metadata={
-                            "source": rel_path,
-                            "source_type": "json",
-                            "filename": filename
-                        }
-                    )
-                    print(f"       → {len(text)} chars")
-
-            elif ext == ".png":
-                if not openai_client:
-                    print(f"       → Skipping PNG (no OPENAI_API_KEY)")
-                    continue
-                # Check file size - skip very large images
-                fsize = os.path.getsize(filepath)
-                if fsize > 20_000_000:
-                    print(f"       → Skipping PNG (too large: {fsize / 1e6:.0f}MB)")
+                # Skip hidden files
+                if filename.startswith("."):
                     continue
 
-                caption = caption_png(filepath, openai_client)
-                if caption.strip():
-                    yield Document(
-                        page_content=f"[MAP DESCRIPTION: {filename}]\n\n{caption}",
-                        metadata={
-                            "source": rel_path,
-                            "source_type": "map_image",
-                            "filename": filename
-                        }
-                    )
-                    print(f"       → Captioned ({len(caption)} chars)")
-                    # Rate limit to avoid hitting API limits
-                    time.sleep(1)
+                # PNG only mode
+                if png_only and ext != ".png":
+                    continue
 
-            else:
-                print(f"       → Skipping unsupported format")
+                # Skip non-PNG in normal mode if flagged
+                if not png_only and ext in (".ds_store",):
+                    continue
+
+                file_count += 1
+                print(f"  [{file_count}] Processing: {source_path} ({ext})")
+
+                if ext == ".pdf":
+                    pages = pdf_to_text(filepath)
+                    if not pages:
+                        print(f"       → No text extracted")
+                        continue
+                    for page_data in pages:
+                        yield Document(
+                            page_content=page_data["text"],
+                            metadata={
+                                "source": source_path,
+                                "source_type": "pdf",
+                                "page": page_data["page"],
+                                "filename": filename,
+                                "docs_dir": dir_label
+                            }
+                        )
+                    print(f"       → {len(pages)} pages extracted")
+
+                elif ext in (".md", ".txt"):
+                    text = md_to_text(filepath)
+                    if text.strip():
+                        yield Document(
+                            page_content=text,
+                            metadata={
+                                "source": source_path,
+                                "source_type": "markdown",
+                                "filename": filename,
+                                "docs_dir": dir_label
+                            }
+                        )
+                        print(f"       → {len(text)} chars")
+
+                elif ext == ".json":
+                    # Skip very large JSON files (>50MB) to avoid memory issues
+                    fsize = os.path.getsize(filepath)
+                    if fsize > 50_000_000:
+                        print(f"       → Skipping (too large: {fsize / 1e6:.0f}MB)")
+                        continue
+                    text = json_to_text(filepath)
+                    if text.strip():
+                        yield Document(
+                            page_content=text,
+                            metadata={
+                                "source": source_path,
+                                "source_type": "json",
+                                "filename": filename,
+                                "docs_dir": dir_label
+                            }
+                        )
+                        print(f"       → {len(text)} chars")
+
+                elif ext == ".png":
+                    if not openai_client:
+                        print(f"       → Skipping PNG (no OPENAI_API_KEY)")
+                        continue
+                    # Check file size - skip very large images
+                    fsize = os.path.getsize(filepath)
+                    if fsize > 20_000_000:
+                        print(f"       → Skipping PNG (too large: {fsize / 1e6:.0f}MB)")
+                        continue
+
+                    caption = caption_png(filepath, openai_client)
+                    if caption.strip():
+                        yield Document(
+                            page_content=f"[MAP DESCRIPTION: {filename}]\n\n{caption}",
+                            metadata={
+                                "source": source_path,
+                                "source_type": "map_image",
+                                "filename": filename,
+                                "docs_dir": dir_label
+                            }
+                        )
+                        print(f"       → Captioned ({len(caption)} chars)")
+                        # Rate limit to avoid hitting API limits
+                        time.sleep(1)
+
+                else:
+                    print(f"       → Skipping unsupported format")
 
 
 # ---------------------------------------------------------------------------
 # Main ingestion
 # ---------------------------------------------------------------------------
 
-def run_ingestion(png_only: bool = False):
-    """Main ingestion pipeline."""
+def run_ingestion(
+    png_only: bool = False,
+    add_mode: bool = False,
+    target_dirs: list[str] | None = None,
+):
+    """Main ingestion pipeline.
+
+    Args:
+        png_only: Only process PNG files.
+        add_mode: Add to existing ChromaDB instead of creating fresh.
+        target_dirs: Specific directories to ingest (defaults to ALL_DOCS_DIRS).
+    """
+    dirs_to_ingest = target_dirs or ALL_DOCS_DIRS
+
     print("=" * 60)
     print("🚀 Hack Canada RAG Ingestion Pipeline")
     print("=" * 60)
-    print(f"  Docs dir:    {DOCS_DIR}")
+    print(f"  Docs dirs:   {dirs_to_ingest}")
     print(f"  Chroma dir:  {CHROMA_DIR}")
     print(f"  Chunk size:  {CHUNK_SIZE} / overlap: {CHUNK_OVERLAP}")
     print(f"  Collection:  {COLLECTION_NAME}")
     print(f"  Embeddings:  {EMBEDDING_MODEL}")
     print(f"  PNG only:    {png_only}")
+    print(f"  Add mode:    {add_mode}")
     print()
 
     # 1. Load documents
     print("📄 Loading documents...")
-    all_docs = list(load_all_documents(png_only=png_only))
+    all_docs = list(load_all_documents(docs_dirs=dirs_to_ingest, png_only=png_only))
     print(f"\n✅ Loaded {len(all_docs)} raw documents")
 
     if not all_docs:
-        print("❌ No documents loaded. Check DOCS_DIR path.")
+        print("❌ No documents loaded. Check directory paths.")
         return
 
     # 2. Chunk documents
@@ -286,6 +317,15 @@ def run_ingestion(png_only: bool = False):
     batch_size = 100
     vectorstore = None
 
+    # In add mode, open the existing store first
+    if add_mode and os.path.exists(CHROMA_DIR):
+        print("  📎 Opening existing ChromaDB for incremental add...")
+        vectorstore = Chroma(
+            persist_directory=CHROMA_DIR,
+            collection_name=COLLECTION_NAME,
+            embedding_function=embeddings,
+        )
+
     for i in range(0, len(chunks), batch_size):
         batch = chunks[i:i + batch_size]
         batch_num = i // batch_size + 1
@@ -315,4 +355,15 @@ def run_ingestion(png_only: bool = False):
 
 if __name__ == "__main__":
     png_only = "--png-only" in sys.argv
-    run_ingestion(png_only=png_only)
+    add_mode = "--add" in sys.argv
+
+    # --dir <path> lets you ingest a specific directory only
+    target_dirs = None
+    if "--dir" in sys.argv:
+        idx = sys.argv.index("--dir")
+        if idx + 1 < len(sys.argv):
+            from pathlib import Path as _P
+            _rag_dir = _P(__file__).resolve().parent
+            target_dirs = [str((_rag_dir / sys.argv[idx + 1]).resolve())]
+
+    run_ingestion(png_only=png_only, add_mode=add_mode, target_dirs=target_dirs)

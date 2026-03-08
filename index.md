@@ -568,6 +568,29 @@ activeNav, savedParcels, showHistory, searchHistory (localStorage per user)
 
 ---
 
+## RAG System — fine-tuned-RAG/
+
+ChromaDB-backed retrieval-augmented generation for Ontario planning and water policy questions.
+
+| File | Purpose |
+|------|---------|
+| `fine-tuned-RAG/config.py` | Shared config: `DOCS_DIR`, `EXTRA_DOCS_DIRS`, embedding model, ChromaDB path |
+| `fine-tuned-RAG/ingest.py` | Multi-directory ingestion pipeline (PDF, MD, JSON, PNG captioning via GPT-4o Vision). Supports `--add` (incremental) and `--dir <path>` (single directory) |
+| `fine-tuned-RAG/retriever.py` | Vector store search (similarity + MMR) and collection stats |
+| `fine-tuned-RAG/rag_chain.py` | LangChain RAG chain with citation-aware system prompt |
+| `fine-tuned-RAG/api.py` | FastAPI endpoints for RAG queries |
+| `fine-tuned-RAG/get_context.py` | Standalone context retrieval utility |
+| `fine-tuned-RAG/test_ask.py` | Quick test harness for RAG questions |
+
+### Document Sources
+
+| Directory | Content |
+|-----------|---------|
+| `../Hack Canada` (DOCS_DIR) | Toronto Official Plan, zoning by-laws, secondary plans, planning maps |
+| `../water-policy` (EXTRA_DOCS_DIRS) | Ontario water legislation (Safe Drinking Water Act, O.Reg 170/03, 169/03), water meter/billing policy, source protection, MTU replacement zones |
+
+---
+
 ## .claude/ Skills Pipeline
 
 6-stage modular agent pipeline for Ontario site feasibility research.
