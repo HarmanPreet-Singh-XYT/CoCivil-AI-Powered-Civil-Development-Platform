@@ -14,20 +14,41 @@ import httpx
 
 CKAN_BASE = "https://ckan0.cf.opendata.inter.prod-toronto.ca/api/3/action"
 
-DATASETS = {
-    "property-boundaries": "property-boundaries-4326.geojson",
-    "zoning-by-law-569-2013-area": "zoning-area-4326.geojson",
-    "zoning-by-law-569-2013-height-overlay": "zoning-height-overlay-4326.geojson",
-    "zoning-by-law-569-2013-setback-overlay": "zoning-building-setback-overlay-4326.geojson",
-    "development-applications": "development-applications.json",
-}
+# (package_name, resource_name_substring, local_filename)
+# resource_name_substring is matched case-insensitively against CKAN resource names.
+# For packages with a single relevant resource, use None to grab the first geojson/json.
+DOWNLOADS = [
+    ("property-boundaries", None, "property-boundaries-4326.geojson"),
+    ("zoning-by-law", "zoning area - 4326.geojson", "zoning-area-4326.geojson"),
+    ("zoning-by-law", "zoning height overlay - 4326.geojson", "zoning-height-overlay-4326.geojson"),
+    ("zoning-by-law", "zoning building setback overlay - 4326.geojson", "zoning-building-setback-overlay-4326.geojson"),
+    ("development-applications", None, "development-applications.json"),
+]
 
 
-def get_download_url(package_name: str, preferred_format: str = "geojson") -> str | None:
-    """Find the download URL for a CKAN package resource."""
+def get_download_url(
+    package_name: str,
+    preferred_format: str = "geojson",
+    resource_name_match: str | None = None,
+) -> str | None:
+    """Find the download URL for a CKAN package resource.
+
+    If resource_name_match is provided, only return a resource whose name
+    contains that substring (case-insensitive).
+    """
     resp = httpx.get(f"{CKAN_BASE}/package_show", params={"id": package_name}, timeout=30)
     resp.raise_for_status()
     resources = resp.json().get("result", {}).get("resources", [])
+
+    # If we have a specific resource name to match, find it first
+    if resource_name_match:
+        needle = resource_name_match.lower()
+        for r in resources:
+            name = (r.get("name") or "").lower()
+            if needle in name and r.get("url"):
+                return r["url"]
+        # Not found by name
+        return None
 
     # Prefer geojson/json format
     for r in resources:
@@ -62,34 +83,33 @@ def download_file(url: str, dest: Path) -> None:
     print()
 
 
-def download_all(data_dir: Path) -> dict[str, Path]:
-    """Download all datasets, return mapping of package -> local path."""
+def download_all(data_dir: Path) -> None:
+    """Download all datasets into data_dir."""
     data_dir.mkdir(parents=True, exist_ok=True)
-    results = {}
 
-    for package_name, filename in DATASETS.items():
+    for package_name, resource_match, filename in DOWNLOADS:
         dest = data_dir / filename
         if dest.exists() and dest.stat().st_size > 1000:
             print(f"[SKIP] {filename} already exists ({dest.stat().st_size // (1024*1024)} MB)")
-            results[package_name] = dest
             continue
 
         print(f"[DOWNLOAD] {package_name} -> {filename}")
         preferred = "json" if filename.endswith(".json") else "geojson"
-        url = get_download_url(package_name, preferred_format=preferred)
+        url = get_download_url(
+            package_name,
+            preferred_format=preferred,
+            resource_name_match=resource_match,
+        )
         if not url:
-            print(f"  WARNING: No download URL found for {package_name}, skipping")
+            print(f"  WARNING: No download URL found for {package_name} (match={resource_match!r}), skipping")
             continue
 
         try:
             download_file(url, dest)
             size_mb = dest.stat().st_size / (1024 * 1024)
             print(f"  Saved: {dest} ({size_mb:.1f} MB)")
-            results[package_name] = dest
         except Exception as e:
             print(f"  ERROR downloading {package_name}: {e}")
-
-    return results
 
 
 def seed_data(data_dir: Path) -> None:
