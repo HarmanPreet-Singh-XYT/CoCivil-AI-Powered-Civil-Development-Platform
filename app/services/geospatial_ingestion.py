@@ -203,7 +203,8 @@ def geojson_to_wkt(geometry: dict[str, Any]) -> str:
 
 
 def _read_geojson(path: Path) -> list[dict[str, Any]]:
-    payload = json.loads(path.read_text())
+    with open(path) as f:
+        payload = json.load(f)
     if payload.get("type") != "FeatureCollection":
         raise ValueError(f"{path} must be a GeoJSON FeatureCollection")
     return payload.get("features", [])
@@ -336,7 +337,14 @@ def ingest_parcel_geojson(
     source_url: str,
     publisher: str | None = None,
 ) -> tuple[SourceSnapshot, IngestionJob]:
-    features = _read_geojson(geojson_path)
+    # Load features and free the raw payload to reduce peak memory
+    with open(geojson_path) as f:
+        payload = json.load(f)
+    if payload.get("type") != "FeatureCollection":
+        raise ValueError(f"{geojson_path} must be a GeoJSON FeatureCollection")
+    features = payload.pop("features", [])
+    del payload
+
     snapshot = create_snapshot(
         db,
         jurisdiction_id=jurisdiction_id,
@@ -355,6 +363,7 @@ def ingest_parcel_geojson(
         job_type="parcel_base",
     )
 
+    BATCH_SIZE = 1000
     summary = IngestionSummary(issues=[])
     seen_pins: set[str] = set()
     try:
@@ -392,6 +401,10 @@ def ingest_parcel_geojson(
             )
             db.add(parcel)
             summary.processed += 1
+
+            # Flush in batches to keep memory usage bounded
+            if summary.processed % BATCH_SIZE == 0:
+                db.flush()
 
         publish_snapshot(db, snapshot, validation_summary=summary.as_json())
         _finalize_job(job, summary)
