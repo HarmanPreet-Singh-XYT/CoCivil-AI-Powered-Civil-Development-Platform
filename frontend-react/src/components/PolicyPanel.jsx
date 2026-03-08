@@ -1231,57 +1231,120 @@ const TAB_TITLES = {
 
 const ZONING_TABS = new Set(['overview']);
 
-function InfraStandardsTab() {
-    const [expanded, setExpanded] = React.useState({ opss: true, awwa: false, csa: false, toronto: false });
+function InfraStandardsTab({ asset }) {
+    const [expanded, setExpanded] = React.useState({ applicable: true, opss: false, awwa: false, csa: false, toronto: false });
     const toggle = (k) => setExpanded(p => ({ ...p, [k]: !p[k] }));
-
     const Badge = ({ t, c }) => <span className="policy-badge" style={c ? { background: `${c}22`, color: c } : undefined}>{t}</span>;
 
-    const standards = {
+    const mat = (asset?.material || '').toUpperCase();
+    const dia = asset?.diameter_mm;
+    const year = asset?.install_year;
+    const age = year ? new Date().getFullYear() - year : null;
+
+    // Material-specific applicable standards
+    const applicable = [];
+    if (mat.includes('CI') || mat.includes('CAST')) {
+        applicable.push({ badge: 'RISK', title: 'Cast Iron — Graphitization & Corrosion', desc: `CI pipes lose tensile strength through graphitic corrosion. Age: ${age ?? '?'} years. CI pipes >60 years have 3–5x break rate vs DI. Polyethylene encasement NOT effective retroactively.`, color: '#e74c3c' });
+        applicable.push({ badge: 'OPSS', title: 'OPSS.MUNI 491 — Pipe Abandonment', desc: 'When CI replacement is triggered, old main must be grouted per OPSS 491. CLSM fill required.', color: '#2277bb' });
+        applicable.push({ badge: 'ECS', title: 'TS 441 — Cathodic Protection', desc: 'CI mains in soils <2,000 Ω·cm require cathodic protection. Sacrificial Mg anodes per Toronto ECS.', color: '#e67e22' });
+    }
+    if (mat.includes('DI') || mat.includes('DUCTILE')) {
+        applicable.push({ badge: 'AWWA', title: 'C151/A21.51 — Ductile-Iron Pipe', desc: `DI pipe ${dia ? dia + ' mm' : ''}. Pressure classes 150–350. Standard lining: cement mortar. External: polyethylene encasement in corrosive soils.`, color: '#27ae60' });
+        applicable.push({ badge: 'AWWA', title: 'C600 — DI Pipe Installation', desc: `Leakage formula: L = ND√P / 7,400. For ${dia || '?'} mm pipe at 1,035 kPa: L = ${dia ? Math.round(1 * dia * Math.sqrt(1035) / 7400) : '?'} mL/hr allowable.`, color: '#27ae60' });
+        applicable.push({ badge: 'ECS', title: 'TS 441 — Polyethylene Encasement', desc: 'Required for all DI in Toronto where soil resistivity <2,000 Ω·cm.', color: '#e67e22' });
+    }
+    if (mat.includes('PVC')) {
+        applicable.push({ badge: 'AWWA', title: 'C900 — PVC Pressure Pipe', desc: `DR 18 standard (1,620 kPa rating). ${dia || '?'} mm. Typical for distribution 100–300 mm. UV-sensitive — must be stored covered.`, color: '#27ae60' });
+        applicable.push({ badge: 'CSA', title: 'CSA B137.3 — PVC Pipe & Fittings', desc: 'Dimensional and material requirements for rigid PVC pressure pipe in cold water service.', color: '#9b59b6' });
+    }
+    if (mat.includes('AC') || mat.includes('ASBESTOS') || mat.includes('CEMENT')) {
+        applicable.push({ badge: 'RISK', title: 'Asbestos Cement — Regulated Material', desc: `AC pipe requires O.Reg 278/05 handling. ${age ?? '?'} years old. Brittle failure mode. No repair — replacement only. Contractor must be licensed.`, color: '#e74c3c' });
+        applicable.push({ badge: 'MOL', title: 'O.Reg 278/05 — Asbestos on Construction', desc: 'Type 3 asbestos operation for cutting/breaking AC pipe. Air monitoring, decontamination, disposal at licensed facility.', color: '#e74c3c' });
+    }
+    if (mat.includes('COP') || mat.includes('COPPER')) {
+        applicable.push({ badge: 'CSA', title: 'CSA B137 Series — Copper Service', desc: `Copper service line ${dia || '?'} mm. Typical 19–50 mm for residential. Lead-free solder mandatory (post-1990).`, color: '#9b59b6' });
+    }
+    if (mat.includes('HDPE') || mat.includes('PE')) {
+        applicable.push({ badge: 'AWWA', title: 'C906 — HDPE Pipe for Water', desc: 'Heat-fusion joints only. PE4710. Suitable for trenchless (pipe bursting, HDD).', color: '#27ae60' });
+    }
+    // Always applicable
+    applicable.push({ badge: 'AWWA', title: 'C651 — Disinfection of Water Mains', desc: '25 mg/L chlorine, 24-hour hold, flush to ≤2.0 mg/L free residual before commissioning. Required for all new/repaired mains.', color: '#27ae60' });
+    applicable.push({ badge: 'NSF', title: 'NSF/ANSI 61 — Drinking Water Contact', desc: 'Mandatory under O.Reg 170/03 for all pipe, lining, and coating materials in potable water systems.', color: '#9b59b6' });
+
+    if (age && age > 50) {
+        applicable.push({ badge: 'ECS', title: 'TS 7.60 — CIPP Lining (Rehab Option)', desc: `At ${age} years, this main may be a CIPP candidate. Min 6.5 mm wall. Pre/post CCTV mandatory. 50-year design life extension.`, color: '#e67e22' });
+    }
+
+    const allStandards = {
         opss: {
             label: 'Ontario Provincial Standards (OPSS / OPSD)',
             items: [
-                { badge: 'OPSS', title: 'OPSS.MUNI 441 — Watermain Installation in Open Cut', desc: 'Test at 1.5x working pressure or 1 035 kPa min; 2-hour hold. Bedding min 150 mm below invert. 1.5 m min cover. 3.0 m horizontal separation from sanitary sewer.' },
+                { badge: 'OPSS', title: 'OPSS.MUNI 441 — Watermain Installation in Open Cut', desc: 'Test at 1.5x working pressure or 1,035 kPa min; 2-hour hold. Bedding min 150 mm. 1.5 m min cover. 3.0 m separation from sanitary.' },
                 { badge: 'OPSS', title: 'OPSS.MUNI 491 — Pipe Abandonment', desc: 'CLSM/cellular grout fill required. As-built recording and GIS update.' },
                 { badge: 'OPSS', title: 'OPSS.MUNI 493 — Watermain CIPP Lining', desc: 'Pre/post CCTV mandatory. NSF/ANSI 61 certified liner. Design per ASTM F1216.' },
-                { badge: 'OPSD', title: 'OPSD 806.010 — Watermain Bedding and Trench Backfill', desc: 'Granular bedding zones with haunch support to spring line. Class B bedding.' },
-                { badge: 'OPSD', title: 'OPSD 1105.010 / .020 — Valve Chamber Details', desc: 'Gate valve and butterfly valve chamber dimensions and reinforcement.' },
-                { badge: 'OPSD', title: 'OPSD 1106.010 — Fire Hydrant Installation', desc: 'Lead, breakaway flange, thrust block, drain pit. Max 150 m hydrant spacing (Toronto ECS).' },
+                { badge: 'OPSD', title: 'OPSD 806.010 — Bedding and Trench Backfill', desc: 'Granular bedding zones with haunch support to spring line. Class B bedding.' },
             ]
         },
         awwa: {
-            label: 'AWWA Standards (adopted by Toronto ECS)',
+            label: 'AWWA Standards',
             items: [
-                { badge: 'AWWA', title: 'C151/A21.51 — Ductile-Iron Pipe', desc: 'Covers DI pipe 80–1 600 mm. Pressure classes 150–350. Standard for distribution and transmission mains.' },
-                { badge: 'AWWA', title: 'C900 — PVC Pressure Pipe', desc: 'DR 18 most common in Ontario (1 620 kPa rating). 100–300 mm distribution mains.' },
-                { badge: 'AWWA', title: 'C906 — HDPE Pipe for Water Distribution', desc: 'Heat-fusion joints only. Trenchless applications (pipe bursting, HDD).' },
-                { badge: 'AWWA', title: 'C509 — Resilient Wedge Gate Valves', desc: '50–500 mm. Non-rising stem. Standard isolation valve for distribution.' },
-                { badge: 'AWWA', title: 'C600 — DI Pipe Installation', desc: 'Pressure testing and leakage formula: L = ND√P / 7 400.' },
-                { badge: 'AWWA', title: 'C651 — Disinfection of Water Mains', desc: '25 mg/L chlorine, 24-hour hold, flush to ≤2.0 mg/L free residual before commissioning.' },
-                { badge: 'AWWA', title: 'C502 — Dry-Barrel Fire Hydrants', desc: '200 ft-lb (270 N·m) max operating torque. Traffic-rated breakaway.' },
+                { badge: 'AWWA', title: 'C151/A21.51 — Ductile-Iron Pipe', desc: '80–1,600 mm. Pressure classes 150–350.' },
+                { badge: 'AWWA', title: 'C900 — PVC Pressure Pipe', desc: 'DR 18 (1,620 kPa). 100–300 mm distribution.' },
+                { badge: 'AWWA', title: 'C906 — HDPE Pipe', desc: 'Heat-fusion joints. Trenchless applications.' },
+                { badge: 'AWWA', title: 'C600 — DI Installation', desc: 'Leakage formula: L = ND√P / 7,400.' },
+                { badge: 'AWWA', title: 'C651 — Disinfection', desc: '25 mg/L Cl₂, 24-hr hold.' },
             ]
         },
         csa: {
             label: 'CSA & NSF Standards',
             items: [
-                { badge: 'CSA', title: 'CSA B137.3 — PVC Pipe and Fittings', desc: 'Rigid PVC pressure pipe for cold water. Material and dimensional requirements.' },
-                { badge: 'CSA', title: 'CSA B137.1 — HDPE Pipe', desc: 'Polyethylene pipe for pressure applications. PE4710 material designation.' },
-                { badge: 'NSF', title: 'NSF/ANSI 61 — Drinking Water Contact', desc: 'Mandatory under O.Reg 170/03 for all pipe, lining, and coating materials in potable water systems.' },
+                { badge: 'CSA', title: 'CSA B137.3 — PVC Pipe', desc: 'Rigid PVC pressure pipe for cold water.' },
+                { badge: 'CSA', title: 'CSA B137.1 — HDPE Pipe', desc: 'PE4710 material designation.' },
+                { badge: 'NSF', title: 'NSF/ANSI 61 — Drinking Water Contact', desc: 'Mandatory under O.Reg 170/03.' },
             ]
         },
         toronto: {
-            label: 'Toronto Engineering & Construction Standards (ECS)',
+            label: 'Toronto ECS',
             items: [
-                { badge: 'ECS', title: 'TS 441 (Sep 2017) — Watermain Installation', desc: 'Max 150 m hydrant spacing. Cathodic protection required in soils < 2 000 Ω·cm. Polyethylene encasement for DI in corrosive soils.' },
-                { badge: 'ECS', title: 'TS 7.60 (Jan 2015) — CIPP Lining', desc: 'Min 6.5 mm wall thickness. Pre/post CCTV. NSF 61 certification required. 50-year design life.' },
-                { badge: 'ECS', title: 'Chapter 6 (Jan 2022) — Approved Materials List', desc: 'Only listed pipe, valve, and fitting products may be used on Toronto Water projects.' },
+                { badge: 'ECS', title: 'TS 441 — Watermain Installation', desc: 'Max 150 m hydrant spacing. Cathodic protection in soils <2,000 Ω·cm.' },
+                { badge: 'ECS', title: 'TS 7.60 — CIPP Lining', desc: 'Min 6.5 mm wall. Pre/post CCTV. 50-year design life.' },
+                { badge: 'ECS', title: 'Chapter 6 — Approved Materials', desc: 'Only listed products on Toronto Water projects.' },
             ]
         }
     };
 
     return (
         <div className="tab-section" style={{ padding: '0 4px' }}>
-            {Object.entries(standards).map(([key, group]) => (
+            {asset && applicable.length > 0 && (
+                <div style={{ marginBottom: 10, border: '1px solid #2a2a2a', borderRadius: 8, overflow: 'hidden' }}>
+                    <button onClick={() => toggle('applicable')} style={{
+                        width: '100%', display: 'flex', justifyContent: 'space-between', alignItems: 'center',
+                        padding: '10px 14px', background: '#1a2a1a', border: 'none', cursor: 'pointer',
+                        color: '#f0ece4', fontSize: 12, fontWeight: 600, textAlign: 'left',
+                        borderBottom: expanded.applicable ? '1px solid #2a2a2a' : 'none',
+                    }}>
+                        <span>Applicable to This Asset — {mat || 'Unknown'} {dia ? dia + ' mm' : ''} {year ? `(${year})` : ''}</span>
+                        <span style={{ color: '#27ae60', fontSize: 10 }}>{applicable.length} standards</span>
+                    </button>
+                    {expanded.applicable && (
+                        <div style={{ background: '#161616' }}>
+                            {applicable.map(({ badge, title, desc, color }) => (
+                                <div key={title} style={{ padding: '10px 14px', borderBottom: '1px solid #222' }}>
+                                    <div style={{ display: 'flex', alignItems: 'flex-start', gap: 8 }}>
+                                        <Badge t={badge} c={color} />
+                                        <div>
+                                            <div style={{ fontSize: 12, fontWeight: 600, color: '#f0ece4', marginBottom: 3 }}>{title}</div>
+                                            <div style={{ fontSize: 11, color: '#888', lineHeight: 1.5 }}>{desc}</div>
+                                        </div>
+                                    </div>
+                                </div>
+                            ))}
+                        </div>
+                    )}
+                </div>
+            )}
+            {!asset && <div style={{ padding: '12px 8px', fontSize: 12, color: '#888' }}>Click a pipe segment on the map to see applicable standards.</div>}
+            {Object.entries(allStandards).map(([key, group]) => (
                 <div key={key} style={{ marginBottom: 10, border: '1px solid #2a2a2a', borderRadius: 8, overflow: 'hidden' }}>
                     <button onClick={() => toggle(key)} style={{
                         width: '100%', display: 'flex', justifyContent: 'space-between', alignItems: 'center',
@@ -1313,14 +1376,77 @@ function InfraStandardsTab() {
     );
 }
 
-function InfraNetworkTab() {
+function InfraNetworkTab({ asset }) {
+    const dia = asset?.diameter_mm;
+    const mat = (asset?.material || '').toUpperCase();
+    const len = asset?.length_m;
+
+    // Classify where this pipe sits in the hierarchy
+    let pipeClass = 'Unknown';
+    let classColor = '#888';
+    if (dia) {
+        if (dia >= 400) { pipeClass = 'Trunk Main'; classColor = '#e74c3c'; }
+        else if (dia >= 200) { pipeClass = 'Primary Distribution'; classColor = '#2277bb'; }
+        else if (dia >= 150) { pipeClass = 'Secondary Distribution'; classColor = '#27ae60'; }
+        else { pipeClass = 'Service Connection'; classColor = '#f1c40f'; }
+    }
+
+    // Hydraulic capacity (Hazen-Williams)
+    const cFactor = mat.includes('CI') || mat.includes('CAST') ? 80 : mat.includes('DI') || mat.includes('DUCTILE') ? 120 : mat.includes('PVC') ? 140 : mat.includes('HDPE') || mat.includes('PE') ? 140 : mat.includes('COP') ? 130 : 100;
+    const flowCapacity = dia ? (0.2785 * cFactor * Math.pow(dia / 1000, 2.63) * Math.pow(0.003, 0.54) * 1000).toFixed(1) : null;
+    const velocity = dia && flowCapacity ? ((parseFloat(flowCapacity) / 1000) / (Math.PI * Math.pow(dia / 2000, 2))).toFixed(2) : null;
+
+    const hierarchy = [
+        { label: 'Trunk', dia: '400–1,200 mm', mat: 'DI / PCCP', color: '#e74c3c' },
+        { label: 'Primary Distribution', dia: '200–400 mm', mat: 'DI', color: '#2277bb' },
+        { label: 'Secondary Distribution', dia: '150–200 mm', mat: 'PVC / DI', color: '#27ae60' },
+        { label: 'Service Connection', dia: '19–50 mm', mat: 'Copper / HDPE', color: '#f1c40f' },
+    ];
+
     return (
         <div className="tab-section" style={{ padding: '4px' }}>
+            {asset && (
+                <div style={{ background: '#1a2a1a', borderRadius: 8, padding: '12px 14px', marginBottom: 12, border: '1px solid #2a4a2a' }}>
+                    <div style={{ fontSize: 11, color: '#27ae60', textTransform: 'uppercase', letterSpacing: 1, marginBottom: 8 }}>This Segment</div>
+                    <div style={{ display: 'grid', gridTemplateColumns: '1fr 1fr', gap: 8 }}>
+                        <div style={{ background: '#161616', borderRadius: 6, padding: '8px 10px' }}>
+                            <div style={{ fontSize: 15, fontWeight: 700, color: classColor }}>{pipeClass}</div>
+                            <div style={{ fontSize: 10, color: '#888' }}>Network class</div>
+                        </div>
+                        <div style={{ background: '#161616', borderRadius: 6, padding: '8px 10px' }}>
+                            <div style={{ fontSize: 15, fontWeight: 700, color: '#c8a55c' }}>{dia || '?'} mm</div>
+                            <div style={{ fontSize: 10, color: '#888' }}>Diameter</div>
+                        </div>
+                        <div style={{ background: '#161616', borderRadius: 6, padding: '8px 10px' }}>
+                            <div style={{ fontSize: 15, fontWeight: 700, color: '#c8a55c' }}>C = {cFactor}</div>
+                            <div style={{ fontSize: 10, color: '#888' }}>Hazen-Williams ({mat || '?'})</div>
+                        </div>
+                        <div style={{ background: '#161616', borderRadius: 6, padding: '8px 10px' }}>
+                            <div style={{ fontSize: 15, fontWeight: 700, color: '#c8a55c' }}>{flowCapacity || '?'} L/s</div>
+                            <div style={{ fontSize: 10, color: '#888' }}>Flow capacity @ 3‰</div>
+                        </div>
+                        {velocity && (
+                            <div style={{ background: '#161616', borderRadius: 6, padding: '8px 10px' }}>
+                                <div style={{ fontSize: 15, fontWeight: 700, color: parseFloat(velocity) > 2.5 ? '#e74c3c' : '#27ae60' }}>{velocity} m/s</div>
+                                <div style={{ fontSize: 10, color: '#888' }}>Velocity {parseFloat(velocity) > 2.5 ? '(HIGH)' : '(OK)'}</div>
+                            </div>
+                        )}
+                        {len && (
+                            <div style={{ background: '#161616', borderRadius: 6, padding: '8px 10px' }}>
+                                <div style={{ fontSize: 15, fontWeight: 700, color: '#c8a55c' }}>{typeof len === 'number' ? Math.round(len) : len} m</div>
+                                <div style={{ fontSize: 10, color: '#888' }}>Segment length</div>
+                            </div>
+                        )}
+                    </div>
+                </div>
+            )}
+            {!asset && <div style={{ padding: '12px 8px', fontSize: 12, color: '#888' }}>Click a pipe segment to see its network classification and hydraulic data.</div>}
+
             <div style={{ background: '#1e1e1e', borderRadius: 8, padding: '12px 14px', marginBottom: 12, border: '1px solid #2a2a2a' }}>
                 <div style={{ fontSize: 11, color: '#888', textTransform: 'uppercase', letterSpacing: 1, marginBottom: 8 }}>Toronto Water System</div>
                 <div style={{ display: 'grid', gridTemplateColumns: '1fr 1fr', gap: 8 }}>
                     {[['6,100 km', 'Total watermain'], ['550 km', 'Transmission'], ['5,550 km', 'Distribution'], ['18', 'Pumping stations'],
-                      ['4', 'Elevated tanks'], ['11', 'Reservoirs'], ['6', 'Pressure zones'], ['13', 'Pressure districts']].map(([val, lab]) => (
+                      ['6', 'Pressure zones'], ['13', 'Pressure districts']].map(([val, lab]) => (
                         <div key={lab} style={{ background: '#161616', borderRadius: 6, padding: '8px 10px' }}>
                             <div style={{ fontSize: 15, fontWeight: 700, color: '#c8a55c' }}>{val}</div>
                             <div style={{ fontSize: 10, color: '#888' }}>{lab}</div>
@@ -1330,39 +1456,28 @@ function InfraNetworkTab() {
             </div>
 
             <div style={{ background: '#1e1e1e', borderRadius: 8, padding: '12px 14px', marginBottom: 12, border: '1px solid #2a2a2a' }}>
+                <div style={{ fontSize: 11, color: '#888', textTransform: 'uppercase', letterSpacing: 1, marginBottom: 8 }}>Pipe Hierarchy</div>
+                {hierarchy.map(({ label, dia: d, mat: m, color }) => {
+                    const isThis = label === pipeClass;
+                    return (
+                        <div key={label} style={{ display: 'flex', alignItems: 'center', gap: 10, padding: '6px 0', borderBottom: '1px solid #222', background: isThis ? '#1a2a1a' : 'transparent', borderRadius: isThis ? 4 : 0, paddingLeft: isThis ? 6 : 0 }}>
+                            <span style={{ width: 12, height: 4, background: color, borderRadius: 2, flexShrink: 0 }} />
+                            <div style={{ flex: 1 }}>
+                                <div style={{ fontSize: 12, color: '#f0ece4' }}>{label} {isThis && asset ? '← this pipe' : ''}</div>
+                                <div style={{ fontSize: 11, color: '#888' }}>{d} · {m}</div>
+                            </div>
+                        </div>
+                    );
+                })}
+            </div>
+
+            <div style={{ background: '#1e1e1e', borderRadius: 8, padding: '12px 14px', border: '1px solid #2a2a2a' }}>
                 <div style={{ fontSize: 11, color: '#888', textTransform: 'uppercase', letterSpacing: 1, marginBottom: 8 }}>Design Parameters</div>
                 <div style={{ fontSize: 12, color: '#aaa', lineHeight: 1.8 }}>
                     <div>Min residual pressure: <strong style={{ color: '#f0ece4' }}>275 kPa (40 psi)</strong></div>
                     <div>Fire flow residual: <strong style={{ color: '#f0ece4' }}>140 kPa (20 psi)</strong></div>
                     <div>Valve spacing: <strong style={{ color: '#f0ece4' }}>max 200 m</strong></div>
                     <div>Hydrant spacing: <strong style={{ color: '#f0ece4' }}>max 150 m</strong> (Toronto ECS)</div>
-                </div>
-            </div>
-
-            <div style={{ background: '#1e1e1e', borderRadius: 8, padding: '12px 14px', marginBottom: 12, border: '1px solid #2a2a2a' }}>
-                <div style={{ fontSize: 11, color: '#888', textTransform: 'uppercase', letterSpacing: 1, marginBottom: 8 }}>Pipe Hierarchy</div>
-                {[
-                    { label: 'Trunk', dia: '400–1 200 mm', mat: 'DI / PCCP', color: '#e74c3c' },
-                    { label: 'Primary Distribution', dia: '200–400 mm', mat: 'DI', color: '#2277bb' },
-                    { label: 'Secondary Distribution', dia: '150–200 mm', mat: 'PVC / DI', color: '#27ae60' },
-                    { label: 'Service Connection', dia: '19–50 mm', mat: 'Copper / HDPE', color: '#f1c40f' },
-                ].map(({ label, dia, mat, color }) => (
-                    <div key={label} style={{ display: 'flex', alignItems: 'center', gap: 10, padding: '6px 0', borderBottom: '1px solid #222' }}>
-                        <span style={{ width: 12, height: 4, background: color, borderRadius: 2, flexShrink: 0 }} />
-                        <div style={{ flex: 1 }}>
-                            <div style={{ fontSize: 12, color: '#f0ece4' }}>{label}</div>
-                            <div style={{ fontSize: 11, color: '#888' }}>{dia} · {mat}</div>
-                        </div>
-                    </div>
-                ))}
-            </div>
-
-            <div style={{ background: '#1e1e1e', borderRadius: 8, padding: '12px 14px', border: '1px solid #2a2a2a' }}>
-                <div style={{ fontSize: 11, color: '#888', textTransform: 'uppercase', letterSpacing: 1, marginBottom: 8 }}>Emergency Interconnections</div>
-                <div style={{ fontSize: 12, color: '#aaa', lineHeight: 1.8 }}>
-                    <div>• York Region — Steeles Ave boundary</div>
-                    <div>• Peel Region — Etobicoke Creek boundary</div>
-                    <div>• Gate valve + backflow preventer at each interconnection</div>
                 </div>
             </div>
         </div>
@@ -1412,27 +1527,80 @@ function InfraDatasetsTab() {
     );
 }
 
-function InfraInspectionsTab() {
-    const methods = [
-        { icon: '📹', name: 'CCTV Inspection', standard: 'NASSCO PACP', desc: 'Defect coding per PACP standard. Mandatory post-CIPP per Toronto ECS TS 7.60. ML-assisted (WSP PipeTube) on Toronto program.', frequency: 'Pre/post-rehab; condition-based' },
-        { icon: '🔊', name: 'Acoustic Leak Detection', standard: 'Echologics EchoWave', desc: 'Non-invasive for PCCP transmission mains 400–2 300 mm. Identifies leaks and wire breaks without service interruption.', frequency: 'Annually on critical mains' },
-        { icon: '💧', name: 'Hydrostatic Pressure Test', standard: 'AWWA C600 / C605', desc: 'Test at 1 035 kPa or 1.5x working pressure, 2-hour hold. Allowable leakage: L = ND√P / 7 400 (mL/hr).', frequency: 'All new installs and rehab' },
-        { icon: '⚡', name: 'Cathodic Protection Survey', standard: 'NACE SP0169', desc: 'Criterion: −850 mV CSE. Annual close-interval surveys. Toronto ECS requires sacrificial Mg anodes in soils < 2 000 Ω·cm.', frequency: 'Annually on protected assets' },
-        { icon: '🎵', name: 'Acoustic Emission (PCCP)', standard: 'Hydrophone', desc: 'Wire break detection in pre-stressed concrete cylinder pipe. Non-interrupting — sensor in flowing main.', frequency: 'Every 5 years on PCCP mains' },
-        { icon: '📊', name: 'Flow / Pressure Monitoring', standard: 'AWWA M36', desc: 'District metered areas (DMAs). Minimum night flow (MNF) analysis for leakage detection. Real-time SCADA.', frequency: 'Continuous' },
+function InfraInspectionsTab({ asset }) {
+    const mat = (asset?.material || '').toUpperCase();
+    const dia = asset?.diameter_mm;
+    const year = asset?.install_year;
+    const age = year ? new Date().getFullYear() - year : null;
+
+    const allMethods = [
+        { icon: '📹', name: 'CCTV Inspection', standard: 'NASSCO PACP', desc: 'Defect coding per PACP standard. Mandatory post-CIPP per Toronto ECS TS 7.60.', frequency: 'Pre/post-rehab; condition-based', materials: ['all'] },
+        { icon: '🔊', name: 'Acoustic Leak Detection', standard: 'Echologics EchoWave', desc: 'Non-invasive. Identifies leaks and wire breaks without service interruption.', frequency: 'Annually on critical mains', materials: ['all'] },
+        { icon: '💧', name: 'Hydrostatic Pressure Test', standard: 'AWWA C600 / C605', desc: 'Test at 1,035 kPa or 1.5x working pressure, 2-hour hold.', frequency: 'All new installs and rehab', materials: ['all'] },
+        { icon: '⚡', name: 'Cathodic Protection Survey', standard: 'NACE SP0169', desc: '−850 mV CSE criterion. Annual close-interval surveys. Toronto ECS requires Mg anodes in soils <2,000 Ω·cm.', frequency: 'Annually on protected assets', materials: ['CI', 'CAST', 'DI', 'DUCTILE'] },
+        { icon: '🎵', name: 'Acoustic Emission (PCCP)', standard: 'Hydrophone', desc: 'Wire break detection in pre-stressed concrete cylinder pipe.', frequency: 'Every 5 years on PCCP mains', materials: ['PCCP', 'CONC'] },
+        { icon: '📊', name: 'Flow / Pressure Monitoring', standard: 'AWWA M36', desc: 'District metered areas. Minimum night flow analysis for leakage detection.', frequency: 'Continuous', materials: ['all'] },
     ];
 
+    // Filter methods applicable to this asset's material
+    const applicableMethods = asset
+        ? allMethods.filter(m => m.materials.includes('all') || m.materials.some(mt => mat.includes(mt)))
+        : allMethods;
+
+    // Asset-specific inspection recommendations
+    const recommendations = [];
+    if (asset) {
+        if (age && age > 80) recommendations.push({ level: 'critical', text: `At ${age} years old, this ${mat} main is in the highest-risk cohort. Recommend immediate condition assessment (CCTV + leak survey).` });
+        else if (age && age > 50) recommendations.push({ level: 'warning', text: `At ${age} years, this main approaches end-of-design-life. Schedule condition assessment within 2 years.` });
+        else if (age && age > 30) recommendations.push({ level: 'info', text: `At ${age} years, this main is mid-life. Standard inspection cycle applies.` });
+
+        if (mat.includes('CI') || mat.includes('CAST')) {
+            recommendations.push({ level: 'warning', text: 'Cast iron: check for graphitization, external corrosion pitting, and bell-joint leaks. Soil resistivity test recommended.' });
+        }
+        if (mat.includes('AC') || mat.includes('ASBESTOS')) {
+            recommendations.push({ level: 'critical', text: 'Asbestos cement: O.Reg 278/05 applies for any cutting/breaking. Pipe samples may be required for condition grading.' });
+        }
+        if (dia && dia >= 400) {
+            recommendations.push({ level: 'info', text: `Transmission main (${dia} mm): acoustic leak detection and pressure monitoring are priority methods.` });
+        }
+
+        // Allowable leakage calc
+        if (dia) {
+            const L = Math.round(1 * dia * Math.sqrt(1035) / 7400);
+            recommendations.push({ level: 'info', text: `AWWA C600 allowable leakage for ${dia} mm @ 1,035 kPa test: ${L} mL/hr per joint.` });
+        }
+    }
+
     const regulations = [
-        { reg: 'O.Reg 170/03', title: 'Drinking Water Systems (Safe Drinking Water Act)', desc: 'Mandatory operational checks, record retention 2–15 years, annual MECP reports.' },
+        { reg: 'O.Reg 170/03', title: 'Drinking Water Systems', desc: 'Mandatory operational checks, record retention 2–15 years, annual MECP reports.' },
         { reg: 'O.Reg 453/07', title: 'Drinking Water Works Permit', desc: 'Required for new watermains and alterations to existing systems.' },
         { reg: 'O.Reg 588/17', title: 'Asset Management Planning', desc: 'Condition assessments, lifecycle costing, and level-of-service targets.' },
         { reg: 'OWRA ECA', title: 'Environmental Compliance Approval', desc: 'Required for new installations; routine replacements may qualify for Class EA Schedule A.' },
     ];
 
+    const levelColors = { critical: '#e74c3c', warning: '#e67e22', info: '#2277bb' };
+
     return (
         <div className="tab-section" style={{ padding: '4px' }}>
-            <div style={{ fontSize: 11, color: '#888', textTransform: 'uppercase', letterSpacing: 1, marginBottom: 8, padding: '0 8px' }}>Inspection Methods</div>
-            {methods.map(m => (
+            {recommendations.length > 0 && (
+                <>
+                    <div style={{ fontSize: 11, color: '#888', textTransform: 'uppercase', letterSpacing: 1, marginBottom: 8, padding: '0 8px' }}>
+                        Recommendations for {mat || 'Unknown'} {dia ? dia + ' mm' : ''} {year ? `(${year})` : ''}
+                    </div>
+                    {recommendations.map((r, i) => (
+                        <div key={i} style={{ background: '#1e1e1e', borderRadius: 8, padding: '10px 14px', marginBottom: 6, border: `1px solid ${levelColors[r.level]}44`, borderLeft: `3px solid ${levelColors[r.level]}` }}>
+                            <div style={{ fontSize: 12, color: levelColors[r.level], lineHeight: 1.5 }}>{r.text}</div>
+                        </div>
+                    ))}
+                    <div style={{ height: 12 }} />
+                </>
+            )}
+            {!asset && <div style={{ padding: '12px 8px', fontSize: 12, color: '#888' }}>Click a pipe segment to see asset-specific inspection recommendations.</div>}
+
+            <div style={{ fontSize: 11, color: '#888', textTransform: 'uppercase', letterSpacing: 1, marginBottom: 8, padding: '0 8px' }}>
+                {asset ? 'Applicable Inspection Methods' : 'All Inspection Methods'}
+            </div>
+            {applicableMethods.map(m => (
                 <div key={m.name} style={{ background: '#1e1e1e', borderRadius: 8, padding: '10px 14px', marginBottom: 8, border: '1px solid #2a2a2a' }}>
                     <div style={{ display: 'flex', alignItems: 'center', gap: 6, marginBottom: 4 }}>
                         <span style={{ fontSize: 14 }}>{m.icon}</span>
@@ -1455,30 +1623,99 @@ function InfraInspectionsTab() {
     );
 }
 
-function InfraHistoryTab() {
-    const timeline = [
-        { year: '1843', event: 'First piped water system (Furniss Works, private)' },
-        { year: '1873', event: 'City of Toronto takes over water supply' },
-        { year: '1878', event: '36-inch cast iron main installed (Copp Clark city plan)' },
-        { year: '1950s', event: 'Thin-wall CI installed across suburban Toronto — now highest break risk cohort' },
-        { year: '2007', event: '$87.7 M emergency investment triggered by ~1,800 breaks/year', highlight: true },
-        { year: '2014', event: '~1,800 breaks/year (modern high)', highlight: true },
-        { year: '2020', event: '681 breaks/year — 58% reduction from capital investment', good: true },
-    ];
+function InfraHistoryTab({ asset }) {
+    const mat = (asset?.material || '').toUpperCase();
+    const year = asset?.install_year;
+    const age = year ? new Date().getFullYear() - year : null;
+    const dia = asset?.diameter_mm;
 
-    const stats = [
-        { label: 'Average pipe age', value: '61 years', color: '#e67e22' },
-        { label: 'Cast iron share', value: '71%', color: '#e67e22' },
-        { label: 'Over 80 years old', value: '24%', color: '#e74c3c' },
-        { label: 'Over 100 years old', value: '13%', color: '#e74c3c' },
+    // Material-specific expected service life and break rates
+    const materialInfo = {
+        CI: { life: 100, breakRate: 25, era: 'Pre-1970', note: 'Bell-and-spigot with lead joints. Graphitic corrosion is primary failure mode. Toronto\'s 1950s CI cohort has highest break density.' },
+        CICL: { life: 100, breakRate: 25, era: 'Pre-1970', note: 'Cast iron cement-lined. Lining delays internal tuberculation but external corrosion still occurs.' },
+        DI: { life: 100, breakRate: 8, era: '1965–present', note: 'Replaced CI as standard. Cement mortar lining standard since 1970s. Polyethylene encasement in corrosive soils.' },
+        DICL: { life: 100, breakRate: 8, era: '1965–present', note: 'Ductile iron cement-lined. Current Toronto Water standard for distribution mains ≥150 mm.' },
+        PVC: { life: 75, breakRate: 3, era: '1980–present', note: 'No corrosion. Brittle fracture risk in cold weather (<-7°C). DR 18 standard in Ontario.' },
+        AC: { life: 50, breakRate: 30, era: '1950–1980', note: 'Asbestos cement — all targeted for replacement by Toronto Water. No rehabilitation possible. O.Reg 278/05 applies.' },
+        COP: { life: 60, breakRate: 5, era: 'Service lines', note: 'Copper service connections 19–50 mm. Lead-free solder mandatory post-1990. Replacement program for lead services.' },
+        HDPE: { life: 100, breakRate: 1, era: '2000–present', note: 'Heat-fusion joints. Used for trenchless replacement (pipe bursting). Lowest break rate of all materials.' },
+        PCCP: { life: 75, breakRate: 6, era: '1960–1990', note: 'Pre-stressed concrete cylinder pipe for large-diameter transmission. Wire break monitoring required.' },
+    };
+
+    const matKey = Object.keys(materialInfo).find(k => mat.includes(k)) || null;
+    const info = matKey ? materialInfo[matKey] : null;
+    const remainingLife = info && age ? Math.max(0, info.life - age) : null;
+    const lifePercent = info && age ? Math.min(100, Math.round((age / info.life) * 100)) : null;
+
+    // Replacement cost estimate (Toronto Water avg $1,200–$2,500/m depending on diameter)
+    const costPerM = dia ? (dia < 200 ? 1200 : dia < 400 ? 1800 : 2500) : null;
+    const segLen = asset?.length_m ? (typeof asset.length_m === 'number' ? asset.length_m : parseFloat(asset.length_m)) : null;
+    const replacementCost = costPerM && segLen ? Math.round(costPerM * segLen) : null;
+
+    const timeline = [
+        { year: '1843', event: 'First piped water system (Furniss Works)' },
+        { year: '1873', event: 'City takes over water supply' },
+        { year: '1950s', event: 'Thin-wall CI installed — now highest break risk' },
+        { year: '2007', event: '$87.7 M emergency investment', highlight: true },
+        { year: '2020', event: '681 breaks/year — 58% reduction', good: true },
     ];
+    if (year) {
+        timeline.push({ year: String(year), event: `This ${mat || 'pipe'} segment installed`, thisAsset: true });
+        timeline.sort((a, b) => parseInt(a.year) - parseInt(b.year));
+    }
 
     return (
         <div className="tab-section" style={{ padding: '4px' }}>
+            {asset && info && (
+                <div style={{ background: '#1a2a1a', borderRadius: 8, padding: '12px 14px', marginBottom: 12, border: '1px solid #2a4a2a' }}>
+                    <div style={{ fontSize: 11, color: '#27ae60', textTransform: 'uppercase', letterSpacing: 1, marginBottom: 8 }}>
+                        This Asset — {mat} {dia ? dia + ' mm' : ''} {year ? `(${year})` : ''}
+                    </div>
+                    <div style={{ display: 'grid', gridTemplateColumns: '1fr 1fr', gap: 8, marginBottom: 10 }}>
+                        <div style={{ background: '#161616', borderRadius: 6, padding: '8px 10px' }}>
+                            <div style={{ fontSize: 16, fontWeight: 700, color: age > 80 ? '#e74c3c' : age > 50 ? '#e67e22' : '#27ae60' }}>{age ?? '?'} yrs</div>
+                            <div style={{ fontSize: 10, color: '#888' }}>Current age</div>
+                        </div>
+                        <div style={{ background: '#161616', borderRadius: 6, padding: '8px 10px' }}>
+                            <div style={{ fontSize: 16, fontWeight: 700, color: remainingLife < 10 ? '#e74c3c' : remainingLife < 30 ? '#e67e22' : '#27ae60' }}>{remainingLife ?? '?'} yrs</div>
+                            <div style={{ fontSize: 10, color: '#888' }}>Est. remaining life</div>
+                        </div>
+                        <div style={{ background: '#161616', borderRadius: 6, padding: '8px 10px' }}>
+                            <div style={{ fontSize: 16, fontWeight: 700, color: '#c8a55c' }}>{info.breakRate}/100km/yr</div>
+                            <div style={{ fontSize: 10, color: '#888' }}>Avg break rate ({matKey})</div>
+                        </div>
+                        {replacementCost && (
+                            <div style={{ background: '#161616', borderRadius: 6, padding: '8px 10px' }}>
+                                <div style={{ fontSize: 16, fontWeight: 700, color: '#c8a55c' }}>${(replacementCost / 1000).toFixed(0)}k</div>
+                                <div style={{ fontSize: 10, color: '#888' }}>Est. replacement cost</div>
+                            </div>
+                        )}
+                    </div>
+                    {lifePercent !== null && (
+                        <div style={{ marginBottom: 8 }}>
+                            <div style={{ fontSize: 10, color: '#888', marginBottom: 3 }}>Lifecycle: {lifePercent}% consumed</div>
+                            <div style={{ height: 6, background: '#333', borderRadius: 3, overflow: 'hidden' }}>
+                                <div style={{ height: '100%', width: `${lifePercent}%`, background: lifePercent > 80 ? '#e74c3c' : lifePercent > 50 ? '#e67e22' : '#27ae60', borderRadius: 3 }} />
+                            </div>
+                        </div>
+                    )}
+                    <div style={{ fontSize: 11, color: '#888', lineHeight: 1.6 }}>
+                        <strong style={{ color: '#aaa' }}>{matKey} era:</strong> {info.era}<br />
+                        {info.note}
+                    </div>
+                </div>
+            )}
+            {!asset && <div style={{ padding: '12px 8px', fontSize: 12, color: '#888' }}>Click a pipe segment to see its age profile and lifecycle data.</div>}
+
             <div style={{ background: '#1e1e1e', borderRadius: 8, padding: '12px 14px', marginBottom: 12, border: '1px solid #2a2a2a' }}>
                 <div style={{ fontSize: 11, color: '#888', textTransform: 'uppercase', letterSpacing: 1, marginBottom: 8 }}>System Age Profile</div>
                 <div style={{ display: 'grid', gridTemplateColumns: '1fr 1fr', gap: 8 }}>
-                    {stats.map(s => (
+                    {[
+                        { label: 'Average pipe age', value: '61 years', color: '#e67e22' },
+                        { label: 'Cast iron share', value: '71%', color: '#e67e22' },
+                        { label: 'Over 80 years old', value: '24%', color: '#e74c3c' },
+                        { label: 'Over 100 years old', value: '13%', color: '#e74c3c' },
+                    ].map(s => (
                         <div key={s.label} style={{ background: '#161616', borderRadius: 6, padding: '8px 10px' }}>
                             <div style={{ fontSize: 16, fontWeight: 700, color: s.color }}>{s.value}</div>
                             <div style={{ fontSize: 10, color: '#888' }}>{s.label}</div>
@@ -1490,10 +1727,10 @@ function InfraHistoryTab() {
             <div style={{ background: '#1e1e1e', borderRadius: 8, padding: '12px 14px', marginBottom: 12, border: '1px solid #2a2a2a' }}>
                 <div style={{ fontSize: 11, color: '#888', textTransform: 'uppercase', letterSpacing: 1, marginBottom: 10 }}>Timeline</div>
                 {timeline.map((t, i) => (
-                    <div key={t.year + i} style={{ display: 'flex', gap: 10, marginBottom: 10, alignItems: 'flex-start' }}>
-                        <div style={{ width: 46, flexShrink: 0, fontSize: 11, fontWeight: 700, color: t.highlight ? '#e74c3c' : t.good ? '#27ae60' : '#c8a55c', textAlign: 'right', paddingTop: 1 }}>{t.year}</div>
-                        <div style={{ width: 2, background: '#333', flexShrink: 0, minHeight: 16, borderRadius: 1 }} />
-                        <div style={{ fontSize: 12, color: t.highlight ? '#e74c3c' : t.good ? '#27ae60' : '#ccc', lineHeight: 1.4 }}>{t.event}</div>
+                    <div key={t.year + i} style={{ display: 'flex', gap: 10, marginBottom: 10, alignItems: 'flex-start', background: t.thisAsset ? '#1a2a1a' : 'transparent', borderRadius: 4, padding: t.thisAsset ? '4px 6px' : 0 }}>
+                        <div style={{ width: 46, flexShrink: 0, fontSize: 11, fontWeight: 700, color: t.thisAsset ? '#27ae60' : t.highlight ? '#e74c3c' : t.good ? '#27ae60' : '#c8a55c', textAlign: 'right', paddingTop: 1 }}>{t.year}</div>
+                        <div style={{ width: 2, background: t.thisAsset ? '#27ae60' : '#333', flexShrink: 0, minHeight: 16, borderRadius: 1 }} />
+                        <div style={{ fontSize: 12, color: t.thisAsset ? '#27ae60' : t.highlight ? '#e74c3c' : t.good ? '#27ae60' : '#ccc', lineHeight: 1.4, fontWeight: t.thisAsset ? 600 : 400 }}>{t.event}</div>
                     </div>
                 ))}
             </div>
@@ -1504,14 +1741,7 @@ function InfraHistoryTab() {
                     <div>Total Toronto Water budget: <strong style={{ color: '#c8a55c' }}>$8.924 B</strong></div>
                     <div>Linear watermain & sewer: <strong style={{ color: '#c8a55c' }}>$5.429 B</strong></div>
                     <div>SOGR backlog (2024): <strong style={{ color: '#e74c3c' }}>$2.194 B</strong></div>
-                    <div style={{ fontSize: 11, color: '#666', marginTop: 4 }}>Target: reduce backlog to &lt;1% of total asset replacement value</div>
                 </div>
-            </div>
-
-            <div style={{ marginTop: 12 }}>
-                <a href="https://open.toronto.ca/dataset/watermain-breaks/" target="_blank" rel="noreferrer" style={{ fontSize: 11, color: '#c8a55c', textDecoration: 'none', display: 'block', padding: '8px 12px', background: '#1e1e1e', borderRadius: 8, border: '1px solid #2a2a2a' }}>
-                    📊 Watermain Breaks Dataset (1990–2016) →
-                </a>
             </div>
         </div>
     );

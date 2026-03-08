@@ -135,7 +135,7 @@ export default function LandingPage({ onNavigate }) {
             <nav className="lp-nav">
                 <div className="lp-nav-inner">
                     <div className="lp-nav-logo">
-                        application<span>AI</span>
+                        <span style={{color: '#D4A843'}}>Co</span>Civil
                     </div>
                     <div className="lp-nav-actions">
                         {isLoading ? (
