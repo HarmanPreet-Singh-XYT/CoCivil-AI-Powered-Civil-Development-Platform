@@ -84,6 +84,115 @@ SUBMISSION_DOCUMENTS = [
         "description": "Shadow impact analysis data for the proposed building envelope",
         "sort_order": 10,
     },
+    # ─── New AI-generated documents ───
+    {
+        "doc_type": "four_statutory_tests",
+        "title": "Four Statutory Tests Analysis",
+        "description": "Analysis of each minor variance test under Planning Act s.45(1)",
+        "sort_order": 11,
+    },
+    {
+        "doc_type": "approval_pathway_document",
+        "title": "Approval Pathway Analysis",
+        "description": "Classification of the approval route and estimated timeline",
+        "sort_order": 12,
+    },
+    {
+        "doc_type": "due_diligence_report",
+        "title": "Due Diligence Report",
+        "description": "Comprehensive risk assessment and constraint inventory",
+        "sort_order": 13,
+    },
+    {
+        "doc_type": "olt_appeal_brief",
+        "title": "Ontario Land Tribunal Appeal Brief",
+        "description": "Appeal brief for OLT proceedings with statutory test analysis",
+        "sort_order": 14,
+    },
+    {
+        "doc_type": "revised_rationale",
+        "title": "Revised Planning Rationale",
+        "description": "Updated rationale addressing refusal reasons point-by-point",
+        "sort_order": 15,
+    },
+    {
+        "doc_type": "mediation_strategy",
+        "title": "Mediation Strategy",
+        "description": "Strategy for resolving planning disputes through mediation",
+        "sort_order": 16,
+    },
+    {
+        "doc_type": "neighbour_support_letter",
+        "title": "Neighbour Support Letter",
+        "description": "Template letter for neighbouring property owners",
+        "sort_order": 17,
+    },
+    {
+        "doc_type": "pac_prep_package",
+        "title": "Pre-Application Consultation Package",
+        "description": "Package for pre-application consultation with city staff",
+        "sort_order": 18,
+    },
+    {
+        "doc_type": "submission_readiness_report",
+        "title": "Submission Readiness Report",
+        "description": "Assessment of submission package completeness",
+        "sort_order": 19,
+    },
+    {
+        "doc_type": "correction_response",
+        "title": "Correction Response Letter",
+        "description": "Response to corrections letter from planning department",
+        "sort_order": 20,
+    },
+    {
+        "doc_type": "compliance_review_report",
+        "title": "Compliance Review Report",
+        "description": "Self-review of generated submission package against requirements",
+        "sort_order": 21,
+    },
+    {
+        "doc_type": "variance_justification",
+        "title": "Variance Justification Report",
+        "description": "Per-variance justification for Committee of Adjustment application",
+        "sort_order": 22,
+    },
+    # ─── Rule-based documents (deterministic, no AI cost) ───
+    {
+        "doc_type": "as_of_right_check",
+        "title": "As-of-Right Compliance Check",
+        "description": "Deterministic check of whether the proposal complies as-of-right",
+        "sort_order": 23,
+        "generation_method": "rule_based",
+    },
+    {
+        "doc_type": "required_studies_checklist",
+        "title": "Required Studies Checklist",
+        "description": "Checklist of studies and reports required for the application",
+        "sort_order": 24,
+        "generation_method": "rule_based",
+    },
+    {
+        "doc_type": "timeline_cost_estimate",
+        "title": "Timeline & Cost Estimate",
+        "description": "Estimated timeline and costs by approval pathway",
+        "sort_order": 25,
+        "generation_method": "rule_based",
+    },
+    {
+        "doc_type": "building_permit_readiness_checklist",
+        "title": "Building Permit Readiness Checklist",
+        "description": "Checklist of building permit submission requirements",
+        "sort_order": 26,
+        "generation_method": "rule_based",
+    },
+    {
+        "doc_type": "professional_referral_checklist",
+        "title": "Professional Referral Checklist",
+        "description": "Checklist of required professional consultants",
+        "sort_order": 27,
+        "generation_method": "rule_based",
+    },
 ]
 
 # Minimum confidence threshold — below this, we pause for user clarification
@@ -279,10 +388,13 @@ def _build_context_and_generate_docs(
     parsed,
     policy_stack=None,
     overlays=None,
+    generate_subset=None,
 ) -> list[SubmissionDocument]:
     """Build document context and generate all submission documents."""
+    from app.ai.factory import get_ai_provider
     from app.services.compliance_engine import render_compliance_matrix_markdown
     from app.services.submission.context_builder import build_document_context
+    from app.services.submission.generator import SubmissionPackageGenerator
     from app.services.submission.templates import SAFETY_PREAMBLE
 
     # Build parcel data dict for context builder
@@ -313,41 +425,85 @@ def _build_context_and_generate_docs(
         parsed_parameters=parsed,
     )
 
+    # Determine which docs to generate
+    docs_to_generate = SUBMISSION_DOCUMENTS
+    if generate_subset:
+        docs_to_generate = [d for d in SUBMISSION_DOCUMENTS if d["doc_type"] in generate_subset]
+
     generated_documents: list[SubmissionDocument] = []
 
-    # Generate documents — try AI generation, fall back to grounded template content
-    for doc_spec in SUBMISSION_DOCUMENTS:
-        doc_type = doc_spec["doc_type"]
+    # Set up AI generator with a single event loop
+    loop = asyncio.new_event_loop()
+    try:
+        provider = get_ai_provider()
+        generator = SubmissionPackageGenerator(provider)
+    except Exception as e:
+        logger.warning("plan.ai_provider.init_failed", error=str(e))
+        provider = None
+        generator = None
 
-        # For compliance_matrix, use deterministic content (no AI)
-        if doc_type == "compliance_matrix" and compliance_result:
-            matrix_md = render_compliance_matrix_markdown(compliance_result)
-            content = (
-                f"> {SAFETY_PREAMBLE}\n\n---\n\n"
-                f"# {doc_spec['title']}\n\n"
-                f"**Address**: {context.get('address', 'N/A')}\n"
-                f"**Zoning**: {context.get('zoning_code', 'N/A')}\n\n"
-                f"## Compliance Matrix\n\n{matrix_md}\n\n"
-                f"## Variances\n\n{context.get('variance_summary', 'None required.')}"
+    try:
+        for doc_spec in docs_to_generate:
+            doc_type = doc_spec["doc_type"]
+            content = None
+            ai_provider_name = None
+            ai_model_name = None
+            content_json = None
+
+            # For compliance_matrix, use deterministic content (no AI)
+            if doc_type == "compliance_matrix" and compliance_result:
+                matrix_md = render_compliance_matrix_markdown(compliance_result)
+                content = (
+                    f"> {SAFETY_PREAMBLE}\n\n---\n\n"
+                    f"# {doc_spec['title']}\n\n"
+                    f"**Address**: {context.get('address', 'N/A')}\n"
+                    f"**Zoning**: {context.get('zoning_code', 'N/A')}\n\n"
+                    f"## Compliance Matrix\n\n{matrix_md}\n\n"
+                    f"## Variances\n\n{context.get('variance_summary', 'None required.')}"
+                )
+            elif doc_spec.get("generation_method") == "rule_based" and generator:
+                try:
+                    result = generator.generate_rule_based_document(doc_type, context)
+                    content = result["content_text"]
+                except Exception as e:
+                    logger.warning("plan.doc.rule_based_failed", doc_type=doc_type, error=str(e))
+                    content = _build_grounded_content(doc_spec, context, SAFETY_PREAMBLE)
+            elif generator:
+                try:
+                    result = loop.run_until_complete(
+                        generator.generate_document(doc_type, context)
+                    )
+                    content = result["content_text"]
+                    content_json = result.get("content_json")
+                    metadata = result.get("metadata", {})
+                    ai_provider_name = metadata.get("ai_provider")
+                    ai_model_name = metadata.get("ai_model")
+                except Exception as e:
+                    logger.warning("plan.doc.ai_failed", doc_type=doc_type, error=str(e))
+                    content = _build_grounded_content(doc_spec, context, SAFETY_PREAMBLE)
+
+            # Final fallback if content is still None
+            if content is None:
+                content = _build_grounded_content(doc_spec, context, SAFETY_PREAMBLE)
+
+            doc = SubmissionDocument(
+                plan_id=plan.id,
+                doc_type=doc_type,
+                title=doc_spec["title"],
+                description=doc_spec["description"],
+                sort_order=doc_spec["sort_order"],
+                format="markdown",
+                status="completed",
+                review_status="draft",
+                content_text=content,
+                content_json=content_json,
+                ai_provider=ai_provider_name,
+                ai_model=ai_model_name,
             )
-        else:
-            # Build content from context — AI generation would happen here
-            # For now, use grounded template content with real data
-            content = _build_grounded_content(doc_spec, context, SAFETY_PREAMBLE)
-
-        doc = SubmissionDocument(
-            plan_id=plan.id,
-            doc_type=doc_type,
-            title=doc_spec["title"],
-            description=doc_spec["description"],
-            sort_order=doc_spec["sort_order"],
-            format="markdown",
-            status="completed",
-            review_status="draft",
-            content_text=content,
-        )
-        db.add(doc)
-        generated_documents.append(doc)
+            db.add(doc)
+            generated_documents.append(doc)
+    finally:
+        loop.close()
 
     db.flush()
     return generated_documents
@@ -446,7 +602,7 @@ def _build_grounded_content(doc_spec: dict, context: dict, preamble: str) -> str
 
 
 @celery_app.task(bind=True, name="app.tasks.plan.run_plan_generation")
-def run_plan_generation(self, plan_id: str, query: str, auto_run: bool = True):
+def run_plan_generation(self, plan_id: str, query: str, auto_run: bool = True, generate_subset: list[str] | None = None):
     """Orchestrate the full plan generation pipeline.
 
     Pipeline steps:
@@ -662,6 +818,7 @@ def run_plan_generation(self, plan_id: str, query: str, auto_run: bool = True):
             compliance_result, precedents, parsed,
             policy_stack=policy_stack,
             overlays=overlays,
+            generate_subset=generate_subset,
         )
 
         # Store summary results

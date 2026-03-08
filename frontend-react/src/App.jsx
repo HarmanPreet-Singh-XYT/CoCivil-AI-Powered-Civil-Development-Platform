@@ -28,6 +28,7 @@ export default function App() {
   const [analyzedUploads, setAnalyzedUploads] = useState([]);
   const [floorPlans, setFloorPlans] = useState(null);
   const [projectId, setProjectId] = useState(null);
+  const [activePlanId, setActivePlanId] = useState(null);
 
   const handleUploadAnalyzed = useCallback((upload) => {
     setAnalyzedUploads((prev) => {
@@ -293,6 +294,7 @@ export default function App() {
         savedParcels={savedParcels}
         onSaveParcel={handleSaveParcel}
         onUploadAnalyzed={handleUploadAnalyzed}
+        activePlanId={activePlanId}
       />
       {!isPanelOpen && (
         <button
@@ -316,7 +318,9 @@ export default function App() {
         modelParams={modelParams}
         onModelUpdate={(params) => { setModelParams(params); setIsModelOpen(true); }}
         analyzedUploads={analyzedUploads}
-        onPlanComplete={(massing) => {
+        activePlanId={activePlanId}
+        onPlanComplete={(massing, planId) => {
+          if (planId) setActivePlanId(planId);
           if (mapRef.current && selectedParcel?.geom) {
             mapRef.current.setProposedMassing(selectedParcel.geom, massing.height_m || (massing.storeys * 3.5));
           }

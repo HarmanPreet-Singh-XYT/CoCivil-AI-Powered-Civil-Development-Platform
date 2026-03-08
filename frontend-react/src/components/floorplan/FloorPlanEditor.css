@@ -10,12 +10,12 @@
 }
 
 .floorplan-toolbar {
-  width: 52px;
+  width: 68px;
   flex-shrink: 0;
   display: flex;
   flex-direction: column;
   align-items: center;
-  gap: 2px;
+  gap: 4px;
   padding: 8px 4px;
   background: var(--bg-secondary);
   border-right: 1px solid var(--border);
@@ -52,12 +52,14 @@
 }
 
 .toolbar-icon-btn {
-  width: 38px;
-  height: 38px;
-  padding: 5px;
+  width: 58px;
+  min-height: 48px;
+  padding: 5px 4px 4px;
   display: flex;
+  flex-direction: column;
   align-items: center;
   justify-content: center;
+  gap: 3px;
   border: 1px solid var(--border);
   border-radius: var(--radius-sm);
   background: var(--bg-primary);
@@ -67,13 +69,23 @@
 }
 
 .toolbar-icon-btn svg {
-  width: 22px;
-  height: 22px;
+  width: 20px;
+  height: 20px;
   stroke: currentColor;
   fill: none;
   stroke-linecap: round;
   stroke-linejoin: round;
   color: inherit;
+  flex-shrink: 0;
+}
+
+.toolbar-btn-label {
+  font-size: 9px;
+  text-transform: uppercase;
+  letter-spacing: 0.04em;
+  line-height: 1;
+  color: inherit;
+  white-space: nowrap;
 }
 
 .toolbar-icon-btn:hover:not(:disabled) {
@@ -96,7 +108,7 @@
 }
 
 .floorplan-toolbar .toolbar-divider {
-  width: 28px;
+  width: 46px;
   height: 1px;
   background: var(--border);
   margin: var(--space-xs) 0;
@@ -542,7 +554,7 @@
 .wall-properties-panel {
   position: absolute;
   top: 8px;
-  left: 60px;
+  left: 76px;
   z-index: 15;
   background: var(--bg-secondary);
   border: 1px solid var(--border);

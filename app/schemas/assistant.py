@@ -26,6 +26,7 @@ class AssistantChatRequest(BaseModel):
 class ProposedAction(BaseModel):
     label: str
     query: str
+    doc_types: list[str] | str | None = None
 
 
 class ModelUpdate(BaseModel):
@@ -40,10 +41,21 @@ class ModelUpdate(BaseModel):
     warnings: list[str] | None = None
 
 
+class ContractorRecommendation(BaseModel):
+    name: str
+    rating: float | None = None
+    review_count: int | None = None
+    phone: str | None = None
+    website: str | None = None
+    address: str | None = None
+    trade: str | None = None
+
+
 class AssistantChatResponse(BaseModel):
     message: str
     proposed_action: ProposedAction | None = None
     model_update: ModelUpdate | None = None
+    contractors: list[ContractorRecommendation] | None = None
 
 
 class ModelParseRequest(BaseModel):

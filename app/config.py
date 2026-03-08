@@ -24,6 +24,8 @@ class Settings(BaseSettings):
     AI_API_KEY: str = ""
     AI_MODEL: str = ""
 
+    GOOGLE_PLACES_API_KEY: str = ""
+
     model_config = {"env_file": ".env", "extra": "ignore"}
 
 

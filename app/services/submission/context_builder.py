@@ -343,6 +343,15 @@ def build_document_context(
             "Planning rationale, zoning interpretation, and final submission sign-off require "
             "qualified professional review."
         ),
+
+        # New context keys for expanded document catalog
+        "approval_pathway_summary": _build_approval_pathway_summary(compliance),
+        "due_diligence_flags": _build_due_diligence_flags(parcel_data, compliance, overlays),
+        "olt_grounds": _build_olt_grounds(compliance),
+        "statutory_tests": MINOR_VARIANCE_FOUR_TESTS,
+        "pac_requirements": _build_pac_requirements(),
+        "submission_checklist_data": _NOT_AVAILABLE,
+        "refusal_reasons": _or(params.get("refusal_reasons")),
     }
 
     return context
@@ -532,6 +541,96 @@ def build_upload_context(
         "gfa_m2": _fmt_area(building.get("gfa_m2")),
         "lot_area_m2": _fmt_area(dims.get("lot_area_m2")),
     }
+
+
+def _build_approval_pathway_summary(compliance: ComplianceResult | None) -> str:
+    """Classify approval pathway from compliance results."""
+    if compliance is None:
+        return _NOT_AVAILABLE
+
+    if not compliance.variances_needed:
+        return "**As-of-Right** — No variances required. Proposal complies with all zoning provisions."
+
+    if compliance.minor_variance_applicable:
+        return (
+            f"**Minor Variance (Committee of Adjustment)** — "
+            f"{len(compliance.variances_needed)} variance(s) required, all under 20% deviation. "
+            f"Eligible for minor variance under Section 45(1) of the Planning Act."
+        )
+
+    return (
+        f"**Zoning By-law Amendment (ZBA)** — "
+        f"{len(compliance.variances_needed)} variance(s) required, one or more exceeds "
+        f"minor variance thresholds. A Zoning By-law Amendment application is likely required."
+    )
+
+
+def _build_due_diligence_flags(
+    parcel_data: dict | None,
+    compliance: ComplianceResult | None,
+    overlays: dict | None,
+) -> str:
+    """Build bullet list of due diligence flags."""
+    flags = []
+
+    # Overlay flags
+    if overlays:
+        overlay_list = overlays if isinstance(overlays, list) else overlays.get("overlays", [])
+        for ov in overlay_list:
+            name = ov.get("name") or ov.get("overlay_type", "Unknown overlay")
+            flags.append(f"- **Overlay**: {name}")
+
+    # Variance flags
+    if compliance and compliance.variances_needed:
+        for v in compliance.variances_needed:
+            severity = "HIGH" if v.variance_pct and v.variance_pct > 20 else "MODERATE"
+            pct = f" ({v.variance_pct:+.1f}%)" if v.variance_pct else ""
+            flags.append(f"- **[{severity}] Variance**: {v.parameter}{pct}")
+
+    # Missing parcel data
+    if parcel_data:
+        for field in ["lot_area_m2", "lot_frontage_m", "lot_depth_m"]:
+            if not parcel_data.get(field):
+                flags.append(f"- **Missing data**: {field.replace('_', ' ')}")
+
+    return "\n".join(flags) if flags else "No significant flags identified."
+
+
+def _build_olt_grounds(compliance: ComplianceResult | None) -> str:
+    """Build OLT appeal grounds based on compliance path."""
+    if compliance is None:
+        return _NOT_AVAILABLE
+
+    if compliance.minor_variance_applicable:
+        return (
+            "**Appeal under s.45(18) of the Planning Act** (Committee of Adjustment decision).\n\n"
+            "The appellant must demonstrate that the four statutory tests under s.45(1) are "
+            "satisfied: (1) minor in nature, (2) desirable for appropriate development, "
+            "(3) maintains general intent of the Zoning By-law, (4) maintains general intent "
+            "of the Official Plan."
+        )
+
+    return (
+        "**Appeal under s.34(11) of the Planning Act** (Zoning By-law Amendment).\n\n"
+        "The appellant must demonstrate that the proposed amendment is consistent with the "
+        "Provincial Planning Statement (2024), conforms to applicable provincial plans, "
+        "and has regard for matters of provincial interest under s.2 of the Planning Act."
+    )
+
+
+def _build_pac_requirements() -> str:
+    """Static PAC process requirements."""
+    return (
+        "**Pre-Application Consultation (PAC) Requirements:**\n\n"
+        "Under Bill 109, applicants must request a PAC meeting before submitting certain applications.\n"
+        "- Complete application form with preliminary development concept\n"
+        "- Conceptual site plan showing building footprint, setbacks, and access\n"
+        "- Preliminary development statistics (height, GFA, unit count, parking)\n"
+        "- Applicable policy framework summary\n"
+        "- List of questions for city planning staff\n"
+        "- Survey or legal description of the property\n\n"
+        "The city has 45 days to hold the PAC meeting after request."
+    )
 
 
 def _build_community_context(address: str, precedents: list[dict] | None) -> str:

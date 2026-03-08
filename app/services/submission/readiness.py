@@ -17,6 +17,13 @@ ESSENTIAL_DOCUMENT_TYPES: dict[str, str] = {
     "financial_feasibility": "Financial feasibility summary",
 }
 
+EXTENDED_ESSENTIAL_TYPES: dict[str, str] = {
+    **ESSENTIAL_DOCUMENT_TYPES,
+    "approval_pathway_document": "Approval pathway document",
+    "as_of_right_check": "As-of-right compliance check",
+    "required_studies_checklist": "Required studies checklist",
+}
+
 ESSENTIAL_INPUTS: dict[str, str] = {
     "address": "Confirm the subject property address or parcel PIN.",
     "project_name": "Provide the official project name used on the submission package.",
@@ -128,7 +135,9 @@ def evaluate_submission_readiness(
 
     document_statuses: list[dict[str, Any]] = []
     docs_by_type = {document.doc_type: document for document in documents}
-    for doc_type, title in ESSENTIAL_DOCUMENT_TYPES.items():
+    # Use extended essential types if plan was generated with new pipeline (>10 docs)
+    essential_types = EXTENDED_ESSENTIAL_TYPES if len(docs_by_type) > 10 else ESSENTIAL_DOCUMENT_TYPES
+    for doc_type, title in essential_types.items():
         document = docs_by_type.get(doc_type)
         if document is None:
             blocking_issues.append(

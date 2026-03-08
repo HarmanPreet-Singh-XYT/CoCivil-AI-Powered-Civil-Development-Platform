@@ -1,6 +1,8 @@
 import json
+import logging
 import re
 
+import httpx
 from fastapi import APIRouter, HTTPException, status
 
 from app.ai.factory import get_ai_provider
@@ -13,13 +15,16 @@ from app.data.ontario_policy import (
     TORONTO_ZONING_KEY_RULES,
 )
 from app.data.toronto_zoning import ZONE_STANDARDS
-from app.schemas.assistant import AssistantChatRequest, AssistantChatResponse, ModelParseRequest, ModelParseResponse, ModelUpdate, ProposedAction
+from app.schemas.assistant import AssistantChatRequest, AssistantChatResponse, ContractorRecommendation, ModelParseRequest, ModelParseResponse, ModelUpdate, ProposedAction
 from app.services.zoning_parser import extract_zone_category
+
+logger = logging.getLogger(__name__)
 
 router = APIRouter()
 
 _ACTION_RE = re.compile(r"<!--ACTION:(.*?)-->", re.DOTALL)
 _MODEL_RE = re.compile(r"<!--MODEL:(.*?)-->", re.DOTALL)
+_CONTRACTORS_RE = re.compile(r"<!--CONTRACTORS:(.*?)-->", re.DOTALL)
 
 _POLICY_CONTEXT = "\n\n".join([
     ONTARIO_POLICY_HIERARCHY,
@@ -46,30 +51,154 @@ Help development analysts, planners, and architects understand:
 
 **Answering mode** (default): Answer the user's question using the policy reference above and the parcel context provided. Be precise — cite by-law sections and specific numbers. Distinguish as-of-right permissions from what needs approval. If information is uncertain or missing, say so.
 
-**Generation mode**: When the user explicitly asks you to generate a planning document (planning rationale, compliance matrix, variance justification, precedent report, or full submission package), OR when you determine that generating a document is the most useful response to their question, propose it.
+**Generation mode**: When the user explicitly asks you to generate a planning document, OR when you determine that generating a document is the most useful response to their question, propose it.
 
 To propose generation, append this marker on its own line at the very end of your response:
-<!--ACTION:{{"label":"Generate [Document Name]","query":"[complete query describing exactly what to generate and for which site]"}}-->
+<!--ACTION:{{"label":"Generate [Document Name]","query":"[complete query describing exactly what to generate and for which site]","doc_types":["doc_type_1","doc_type_2"]}}-->
 
 Examples of when to propose generation:
 - "Write a planning rationale for a 4-storey multiplex at 192 Jarvis" → answer briefly then propose
-- "Generate the submission package" → propose it
+- "Generate the submission package" → propose with "doc_types":"all"
 - "Can I build a garden suite here?" → answer the question, do NOT propose generation
 - "What's the FSI limit?" → answer the question, do NOT propose generation
 
 Only propose generation when a formal document is genuinely what the user wants. Never propose generation for informational questions.
+
+## Document catalog
+When the user needs a formal document, propose generating it using the ACTION marker.
+Include a "doc_types" array in the ACTION JSON to specify which document(s) to generate.
+
+Available documents (grouped by when they're useful):
+
+**Core submission package** (propose for "generate the submission package"):
+cover_letter, planning_rationale, compliance_matrix, site_plan_data, massing_summary,
+unit_mix_summary, financial_feasibility, precedent_report, public_benefit_statement, shadow_study
+
+**Variance & compliance** (propose when discussing variances, CoA, compliance):
+four_statutory_tests, variance_justification, as_of_right_check, compliance_review_report
+
+**Approval pathway** (propose when discussing process, timeline, costs):
+approval_pathway_document, timeline_cost_estimate, required_studies_checklist,
+professional_referral_checklist, building_permit_readiness_checklist, pac_prep_package
+
+**Appeals & responses** (propose when discussing refusals, appeals, mediation):
+olt_appeal_brief, revised_rationale, mediation_strategy, correction_response
+
+**Community & readiness** (propose for outreach, submission prep):
+neighbour_support_letter, submission_readiness_report, due_diligence_report
+
+Example ACTION markers:
+- Single doc: <!--ACTION:{{"label":"Generate As-of-Right Check","query":"...","doc_types":["as_of_right_check"]}}-->
+- Multiple related docs: <!--ACTION:{{"label":"Generate Variance Package","query":"...","doc_types":["four_statutory_tests","variance_justification","as_of_right_check"]}}-->
+- Full package: <!--ACTION:{{"label":"Generate Full Submission Package","query":"...","doc_types":"all"}}-->
+
+Only propose documents that are relevant to what the user is asking about. Never propose the full package unless the user explicitly asks for it.
+
+## Contractor recommendation tool
+IMPORTANT: When the user asks about contractors, professionals, or what team they need, OR when you mention needing specific professionals in your answer, you MUST append the CONTRACTORS marker at the very end of your response. This is how the system fetches real local companies to show the user.
+
+Format — append on its own line at the very end:
+<!--CONTRACTORS:{{"trades":["search term 1","search term 2","search term 3"]}}-->
+
+Example: If the user asks "what contractors do I need for a multiplex?", your response should end with:
+<!--CONTRACTORS:{{"trades":["general contractor","structural engineer","renovation contractor","architect"]}}-->
+
+Valid search terms: "structural engineer", "general contractor", "architectural lighting consultant", "quantity surveyor", "renovation contractor", "geotechnical engineer", "land surveyor", "arborist", "environmental consultant", "concrete contractor", "planning consultant", "architect", "MEP engineer", "acoustic consultant".
+
+Maximum 4 trades. You MUST include this marker whenever contractors or professionals are discussed — it is invisible to the user and triggers the system to show real nearby companies.
 
 ## Rules
 - Keep answers concise and grounded — 2–4 short paragraphs maximum for most questions
 - Cite by-law sections (e.g. "§10.5.10.20 of By-law 569-2013") and policy clauses when confident
 - Distinguish as-of-right from what needs a variance or higher approval
 - Never fabricate data — if parcel data is not provided, say so clearly
-- Plain text only, no markdown headers in responses
+- Plain text only, no markdown headers in responses (the ACTION, MODEL, and CONTRACTORS markers are not visible to the user — always include them when applicable)
 """
 
 
-def _parse_response(raw: str, zone_constraints: dict | None = None, zone_code: str | None = None) -> tuple[str, ProposedAction | None, ModelUpdate | None]:
-    """Strip action/model markers from the response and parse them."""
+# Keywords in user message that trigger contractor detection
+_CONTRACTOR_USER_TRIGGERS = re.compile(
+    r"\b(contractor|contractors|who do i need|what team|hire|find me|recommend|professionals|trades)\b",
+    re.IGNORECASE,
+)
+
+# Mapping: keyword found in AI response → Google Places trade search term
+_RESPONSE_TRADE_MAP = {
+    "structural engineer": "structural engineer",
+    "general contractor": "general contractor",
+    "architect": "architect",
+    "planning consultant": "planning consultant",
+    "geotechnical engineer": "geotechnical engineer",
+    "MEP engineer": "MEP engineer",
+    "land surveyor": "land surveyor",
+    "arborist": "arborist",
+    "environmental consultant": "environmental consultant",
+    "concrete contractor": "concrete contractor",
+    "acoustic consultant": "acoustic consultant",
+    "quantity surveyor": "quantity surveyor",
+    "renovation contractor": "renovation contractor",
+    "lighting consultant": "architectural lighting consultant",
+}
+
+
+def _detect_contractor_trades(user_text: str, ai_response: str) -> list[str] | None:
+    """Detect if the conversation is about contractors and extract relevant trades."""
+    if not _CONTRACTOR_USER_TRIGGERS.search(user_text):
+        return None
+
+    # Scan the AI response for mentioned trades
+    response_lower = ai_response.lower()
+    trades: list[str] = []
+    seen: set[str] = set()
+    for keyword, trade in _RESPONSE_TRADE_MAP.items():
+        if keyword.lower() in response_lower and trade not in seen:
+            seen.add(trade)
+            trades.append(trade)
+            if len(trades) >= 4:
+                break
+
+    # If user asked about contractors but AI didn't mention specific ones, default
+    if not trades:
+        trades = ["general contractor", "structural engineer"]
+
+    return trades
+
+
+async def _fetch_contractors(trades: list[str], lat: float, lng: float) -> list[ContractorRecommendation]:
+    """Fetch contractor recommendations from Google Places API."""
+    if not settings.GOOGLE_PLACES_API_KEY or not trades:
+        return []
+
+    contractors: list[ContractorRecommendation] = []
+    async with httpx.AsyncClient(timeout=10) as client:
+        for trade in trades[:4]:
+            try:
+                resp = await client.get(
+                    "https://maps.googleapis.com/maps/api/place/textsearch/json",
+                    params={
+                        "query": f"{trade} near Toronto",
+                        "location": f"{lat},{lng}",
+                        "radius": "10000",
+                        "key": settings.GOOGLE_PLACES_API_KEY,
+                    },
+                )
+                data = resp.json()
+                for place in (data.get("results") or [])[:3]:
+                    contractors.append(ContractorRecommendation(
+                        name=place.get("name", ""),
+                        rating=place.get("rating"),
+                        review_count=place.get("user_ratings_total"),
+                        phone=place.get("formatted_phone_number"),
+                        address=place.get("formatted_address"),
+                        trade=trade,
+                    ))
+            except Exception:
+                logger.warning("Google Places API error for trade=%s", trade, exc_info=True)
+    return contractors
+
+
+def _parse_response(raw: str, zone_constraints: dict | None = None, zone_code: str | None = None) -> tuple[str, ProposedAction | None, ModelUpdate | None, list[str] | None]:
+    """Strip action/model/contractor markers from the response and parse them."""
     text = raw
 
     # Parse action marker
@@ -82,6 +211,7 @@ def _parse_response(raw: str, zone_constraints: dict | None = None, zone_code: s
             action = ProposedAction(
                 label=data.get("label", "Generate Document"),
                 query=data.get("query", ""),
+                doc_types=data.get("doc_types"),
             )
         except (json.JSONDecodeError, KeyError):
             pass
@@ -118,7 +248,18 @@ def _parse_response(raw: str, zone_constraints: dict | None = None, zone_code: s
         except (json.JSONDecodeError, KeyError, Exception):
             pass
 
-    return text.strip(), action, model_update
+    # Parse contractor recommendation marker
+    contractor_trades = None
+    contractor_match = _CONTRACTORS_RE.search(text)
+    if contractor_match:
+        text = _CONTRACTORS_RE.sub("", text)
+        try:
+            data = json.loads(contractor_match.group(1))
+            contractor_trades = data.get("trades", [])
+        except (json.JSONDecodeError, KeyError):
+            pass
+
+    return text.strip(), action, model_update, contractor_trades
 
 
 @router.post("/assistant/parse-model", response_model=ModelParseResponse, status_code=status.HTTP_200_OK)
@@ -310,7 +451,38 @@ async def chat_with_assistant(body: AssistantChatRequest) -> AssistantChatRespon
             detail=f"Assistant generation failed: {exc}",
         ) from exc
 
-    message, proposed_action, model_update = _parse_response(
+    message, proposed_action, model_update, contractor_trades = _parse_response(
         response.content, zone_constraints, zone_label
     )
-    return AssistantChatResponse(message=message, proposed_action=proposed_action, model_update=model_update)
+
+    # If the AI didn't emit a CONTRACTORS marker, detect from context
+    if not contractor_trades:
+        contractor_trades = _detect_contractor_trades(
+            user_text=history[-1].text if history else "",
+            ai_response=message,
+        )
+
+    # Fetch real contractor data
+    contractors = None
+    if contractor_trades:
+        lat, lng = 43.6532, -79.3832  # Default Toronto
+        if body.parcel_context:
+            for line in body.parcel_context.split("\n"):
+                if "lat" in line.lower():
+                    try:
+                        lat = float(re.search(r"[-+]?\d+\.?\d*", line).group())
+                    except (AttributeError, ValueError):
+                        pass
+                if "lng" in line.lower() or "lon" in line.lower():
+                    try:
+                        lng = float(re.search(r"[-+]?\d+\.?\d*", line).group())
+                    except (AttributeError, ValueError):
+                        pass
+        contractors = await _fetch_contractors(contractor_trades, lat, lng)
+
+    return AssistantChatResponse(
+        message=message,
+        proposed_action=proposed_action,
+        model_update=model_update,
+        contractors=contractors or None,
+    )

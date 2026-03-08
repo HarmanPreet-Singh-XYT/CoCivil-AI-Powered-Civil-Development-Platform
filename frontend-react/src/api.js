@@ -144,15 +144,20 @@ export async function chatWithAssistant({ messages, parcelContext = null, modelP
         message: data.message,
         proposedAction: data.proposed_action ?? null,
         modelUpdate: data.model_update ?? null,
+        contractors: data.contractors ?? [],
     };
 }
 
 // ─── Plans ───
 
-export async function generatePlan(query) {
+export async function generatePlan(query, generateSubset = null) {
+    const body = { query, auto_run: true };
+    if (generateSubset && generateSubset !== 'all') {
+        body.generate_subset = generateSubset;
+    }
     return apiFetch(`${API_BASE}/plans/generate`, {
         method: 'POST',
-        body: JSON.stringify({ query, auto_run: true }),
+        body: JSON.stringify(body),
     });
 }
 
@@ -162,6 +167,41 @@ export async function getPlan(planId, options = {}) {
 
 export async function getPlanDocuments(planId, options = {}) {
     return apiFetch(`${API_BASE}/plans/${planId}/documents`, options);
+}
+
+export async function regeneratePlanDocument(planId, docType, extraContext = {}) {
+    return apiFetch(`${API_BASE}/plans/${planId}/generate-document/${docType}`, {
+        method: 'POST',
+        body: JSON.stringify({ extra_context: extraContext }),
+    });
+}
+
+export async function downloadPlanDocument(planId, docId, format = 'markdown') {
+    const token = localStorage.getItem('token');
+    const headers = {};
+    if (token) headers['Authorization'] = `Bearer ${token}`;
+    const res = await fetch(
+        `${API_BASE}/plans/${planId}/documents/${docId}/download?format=${format}`,
+        { headers }
+    );
+    if (!res.ok) throw new Error(`Download failed: ${res.status}`);
+    return res;
+}
+
+export async function exportPlan(planId) {
+    return apiFetch(`${API_BASE}/plans/${planId}/export`, {
+        method: 'POST',
+    });
+}
+
+// ─── Contractors ───
+
+export async function getContractorRecommendations(planId, lat, lng) {
+    try {
+        return await apiFetch(`${API_BASE}/plans/${planId}/contractors?lat=${lat}&lng=${lng}`);
+    } catch {
+        return { contractors: [] };
+    }
 }
 
 // ─── Uploads ───

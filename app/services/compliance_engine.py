@@ -177,13 +177,18 @@ def check_compliance(
     ))
 
     # 4. Min front setback
+    proposed_front_setback = (
+        massing.get("front_setback_m")
+        or massing.get("assumptions_used", {}).get(
+            "policy_geometry_defaults", {}
+        ).get("front_setback_m")
+        or None
+    )
     rules.append(_check_min(
         parameter="Minimum Front Setback",
         bylaw_section=section_prefix,
         required=standards.min_front_setback_m,
-        proposed=massing.get("assumptions_used", {}).get(
-            "policy_geometry_defaults", {}
-        ).get("stepback_m"),
+        proposed=proposed_front_setback,
         unit="m",
         note="Proposed value from massing assumptions — verify with site plan",
     ))
@@ -219,31 +224,49 @@ def check_compliance(
     ))
 
     # 8. Max lot coverage
+    # O.Reg 462/24 §4(3) — 45% lot coverage for ≤3 unit multiplex in R zones
+    total_units = layout.get("total_units", 0)
+    permitted_lot_coverage = standards.max_lot_coverage_pct
+    if (zoning.zone_string.upper().startswith("R")
+            and total_units <= 3
+            and permitted_lot_coverage is not None):
+        permitted_lot_coverage = max(permitted_lot_coverage, 45.0)
+
     lot_coverage_proposed = massing.get("lot_coverage_pct")
     if lot_coverage_proposed is not None and lot_coverage_proposed <= 1.0:
         lot_coverage_proposed = lot_coverage_proposed * 100.0
+    lot_coverage_note = ""
+    if (zoning.zone_string.upper().startswith("R")
+            and total_units <= 3
+            and permitted_lot_coverage != standards.max_lot_coverage_pct):
+        lot_coverage_note = "O.Reg 462/24 §4(3) — 45% lot coverage for ≤3 unit multiplex"
     rules.append(_check_max(
         parameter="Maximum Lot Coverage",
         bylaw_section=section_prefix,
-        permitted=standards.max_lot_coverage_pct,
+        permitted=permitted_lot_coverage,
         proposed=lot_coverage_proposed,
         unit="%",
+        note=lot_coverage_note,
     ))
 
     # 9. Min landscaped area
+    proposed_landscaping = layout.get("landscaping_pct")
     rules.append(_check_min(
         parameter="Minimum Landscaped Open Space",
         bylaw_section=section_prefix,
         required=standards.min_landscaping_pct,
-        proposed=None,  # requires site plan
+        proposed=proposed_landscaping,
         unit="%",
-        note="Requires site plan — manual verification needed",
+        note="" if proposed_landscaping is not None else "Requires site plan — manual verification needed",
     ))
 
     # 10. Parking minimums (by policy area)
     parking_std = zoning.parking_standards
-    parking_per_unit = parking_std.get("residential_per_unit", 0.0)
-    total_units = layout.get("total_units", 0)
+    # Bill 185 — zero minimum parking for ≤10 unit residential in R zones
+    if total_units <= 10 and zoning.zone_string.upper().startswith("R"):
+        parking_per_unit = 0.0
+    else:
+        parking_per_unit = parking_std.get("residential_per_unit", 0.0)
     required_parking = round(total_units * parking_per_unit, 1)
     proposed_parking = layout.get("parking_required")
     rules.append(_check_min(

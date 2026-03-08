@@ -1,65 +1,82 @@
-// SVG Icons
+// ── Cursor / Select ──────────────────────────────────────────
 const SelectIcon = () => (
-  <svg viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2">
-    <path d="M6 6l-2-2M6 6h4v4h12v12H6V6z" strokeLinecap="round" strokeLinejoin="round" />
-    <circle cx="6" cy="6" r="1" fill="currentColor" />
+  <svg viewBox="0 0 24 24" fill="none" strokeLinecap="round" strokeLinejoin="round">
+    <path d="M5 3l15 9.5-7 1.5-3 7L5 3z" fill="currentColor" stroke="currentColor" strokeWidth="1.5" />
+    <line x1="13" y1="13" x2="20" y2="20" stroke="currentColor" strokeWidth="2.5" />
   </svg>
 );
 
+// ── Wall (floor-plan cross-section) ──────────────────────────
 const WallIcon = () => (
-  <svg viewBox="0 0 24 24" fill="currentColor">
-    <rect x="4" y="8" width="16" height="8" fill="currentColor" />
+  <svg viewBox="0 0 24 24" fill="none">
+    <rect x="2" y="9" width="20" height="6" fill="currentColor" rx="1" />
+    <line x1="2"  y1="6" x2="2"  y2="18" stroke="currentColor" strokeWidth="2.5" strokeLinecap="round" />
+    <line x1="22" y1="6" x2="22" y2="18" stroke="currentColor" strokeWidth="2.5" strokeLinecap="round" />
   </svg>
 );
 
+// ── Door (plan-view arc swing) ────────────────────────────────
 const DoorIcon = () => (
-  <svg viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2">
-    <rect x="4" y="3" width="14" height="18" />
-    <circle cx="16" cy="12" r="1.5" fill="currentColor" />
-    <path d="M4 12h12" />
+  <svg viewBox="0 0 24 24" fill="none" strokeLinecap="round" strokeLinejoin="round">
+    {/* Left wall stub */}
+    <rect x="2" y="9" width="5" height="6" fill="currentColor" rx="0.5" />
+    {/* Right wall stub */}
+    <rect x="17" y="9" width="5" height="6" fill="currentColor" rx="0.5" />
+    {/* Gap top/bottom lines */}
+    <line x1="7" y1="9"  x2="17" y2="9"  stroke="currentColor" strokeWidth="1.5" />
+    <line x1="7" y1="15" x2="17" y2="15" stroke="currentColor" strokeWidth="1.5" />
+    {/* Door leaf */}
+    <line x1="7" y1="9" x2="7" y2="3" stroke="currentColor" strokeWidth="1.5" />
+    {/* Swing arc */}
+    <path d="M7 9 A6 6 0 0 1 17 3" stroke="currentColor" strokeWidth="1.5" fill="none" strokeDasharray="2 1.5" />
   </svg>
 );
 
+// ── Window (plan-view triple line in wall gap) ────────────────
 const WindowIcon = () => (
-  <svg viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2">
-    <rect x="3" y="3" width="18" height="18" />
-    <line x1="12" y1="3" x2="12" y2="21" />
-    <line x1="3" y1="12" x2="21" y2="12" />
+  <svg viewBox="0 0 24 24" fill="none" strokeLinecap="round">
+    {/* Left wall stub */}
+    <rect x="2" y="9" width="5" height="6" fill="currentColor" rx="0.5" />
+    {/* Right wall stub */}
+    <rect x="17" y="9" width="5" height="6" fill="currentColor" rx="0.5" />
+    {/* Three parallel glass lines */}
+    <line x1="7" y1="9"  x2="17" y2="9"  stroke="currentColor" strokeWidth="1.5" />
+    <line x1="7" y1="12" x2="17" y2="12" stroke="currentColor" strokeWidth="1.5" />
+    <line x1="7" y1="15" x2="17" y2="15" stroke="currentColor" strokeWidth="1.5" />
   </svg>
 );
 
-const RoomIcon = () => (
-  <svg viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2">
-    <rect x="4" y="4" width="16" height="16" />
-    <line x1="4" y1="12" x2="20" y2="12" />
-    <line x1="12" y1="4" x2="12" y2="20" />
+// ── Eraser ────────────────────────────────────────────────────
+const EraseIcon = () => (
+  <svg viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="1.75" strokeLinecap="round" strokeLinejoin="round">
+    <path d="M20 20H7L3 16l9.5-9.5 7.5 7.5L20 20z" />
+    <line x1="5" y1="18" x2="14" y2="9" />
   </svg>
 );
 
-const DeleteIcon = () => (
-  <svg viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2">
-    <polyline points="3 6 5 6 21 6" />
-    <path d="M19 6v14c0 1-1 2-2 2H7c-1 0-2-1-2-2V6m3 0V4c0-1 1-2 2-2h4c1 0 2 1 2 2v2" />
-    <line x1="10" y1="11" x2="10" y2="17" />
-    <line x1="14" y1="11" x2="14" y2="17" />
+// ── Undo / Redo ───────────────────────────────────────────────
+const UndoIcon = () => (
+  <svg viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2" strokeLinecap="round" strokeLinejoin="round">
+    <polyline points="9 14 4 9 9 4" />
+    <path d="M20 20v-7a4 4 0 0 0-4-4H4" />
   </svg>
 );
 
-const MeasureIcon = () => (
-  <svg viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2">
-    <line x1="3" y1="12" x2="21" y2="12" />
-    <line x1="3" y1="9" x2="3" y2="15" />
-    <line x1="21" y1="9" x2="21" y2="15" />
-    <path d="M12 12l-3 3m0-6l3 3" strokeLinecap="round" />
+const RedoIcon = () => (
+  <svg viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2" strokeLinecap="round" strokeLinejoin="round">
+    <polyline points="15 14 20 9 15 4" />
+    <path d="M4 20v-7a4 4 0 0 1 4-4h12" />
   </svg>
 );
+
+// ─────────────────────────────────────────────────────────────
 
 const TOOLS = [
-  { id: 'select', title: 'Select (V)', icon: SelectIcon, enabled: true },
-  { id: 'wall', title: 'Wall (W)', icon: WallIcon, enabled: true },
-  { id: 'door', title: 'Door (D)', icon: DoorIcon, enabled: true },
-  { id: 'window', title: 'Window (O)', icon: WindowIcon, enabled: true },
-  { id: 'delete', title: 'Delete (X)', icon: DeleteIcon, enabled: true },
+  { id: 'select', label: 'Select', icon: SelectIcon },
+  { id: 'wall',   label: 'Wall',   icon: WallIcon   },
+  { id: 'door',   label: 'Door',   icon: DoorIcon   },
+  { id: 'window', label: 'Window', icon: WindowIcon },
+  { id: 'delete', label: 'Erase',  icon: EraseIcon  },
 ];
 
 export default function EditorToolbar({
@@ -69,50 +86,41 @@ export default function EditorToolbar({
   onRedo,
   canUndo,
   canRedo,
-  showDimensions,
-  onToggleDimensions,
 }) {
   return (
     <div className="floorplan-toolbar">
-      {TOOLS.map((tool) => {
-        const IconComponent = tool.icon;
-        return (
-          <button
-            key={tool.id}
-            className={`toolbar-icon-btn ${activeTool === tool.id ? 'active' : ''}`}
-            onClick={() => tool.enabled && onToolChange(tool.id)}
-            title={tool.enabled ? tool.title : tool.title}
-            disabled={!tool.enabled}
-          >
-            <IconComponent />
-          </button>
-        );
-      })}
+      {TOOLS.map(({ id, label, icon: Icon }) => (
+        <button
+          key={id}
+          className={`toolbar-icon-btn ${activeTool === id ? 'active' : ''}`}
+          onClick={() => onToolChange(id)}
+          title={label}
+        >
+          <Icon />
+          <span className="toolbar-btn-label">{label}</span>
+        </button>
+      ))}
 
       <div className="toolbar-divider" />
 
-      <div className="undo-redo-group">
-        <button
-          className="toolbar-icon-btn"
-          onClick={onUndo}
-          disabled={!canUndo}
-          title="Undo (Ctrl+Z)"
-        >
-          <svg viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2">
-            <path d="M3 7v6h6M21 17a9 9 0 00-9-9 9 9 0 00-6 2.3L3 13" />
-          </svg>
-        </button>
-        <button
-          className="toolbar-icon-btn"
-          onClick={onRedo}
-          disabled={!canRedo}
-          title="Redo (Ctrl+Y)"
-        >
-          <svg viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2">
-            <path d="M21 7v6h-6M3 17a9 9 0 019-9 9 9 0 016 2.3l3 2.7" />
-          </svg>
-        </button>
-      </div>
+      <button
+        className="toolbar-icon-btn"
+        onClick={onUndo}
+        disabled={!canUndo}
+        title="Undo (Ctrl+Z)"
+      >
+        <UndoIcon />
+        <span className="toolbar-btn-label">Undo</span>
+      </button>
+      <button
+        className="toolbar-icon-btn"
+        onClick={onRedo}
+        disabled={!canRedo}
+        title="Redo (Ctrl+Y)"
+      >
+        <RedoIcon />
+        <span className="toolbar-btn-label">Redo</span>
+      </button>
     </div>
   );
 }

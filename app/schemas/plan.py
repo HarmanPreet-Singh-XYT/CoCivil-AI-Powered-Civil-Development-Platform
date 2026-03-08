@@ -9,6 +9,12 @@ class PlanGenerateRequest(BaseModel):
     """Natural language development query."""
     query: str = Field(min_length=10, description="Describe what you want to build and where")
     auto_run: bool = Field(default=True, description="Automatically run the full pipeline after parsing")
+    generate_subset: list[str] | None = Field(default=None, description="Generate only these doc types (None = all)")
+
+
+class PlanGenerateDocumentRequest(BaseModel):
+    """Request to generate/regenerate a single document from an existing plan."""
+    extra_context: dict | None = None
 
 
 class PlanClarifyResponse(BaseModel):
@@ -102,6 +108,20 @@ class PlanResponse(BaseModel):
     documents: list[SubmissionDocumentResponse] = []
 
     model_config = {"from_attributes": True}
+
+
+class ContractorResult(BaseModel):
+    name: str
+    rating: float | None = None
+    review_count: int | None = None
+    phone: str | None = None
+    website: str | None = None
+    address: str | None = None
+    trade: str | None = None
+
+
+class ContractorRecommendationsResponse(BaseModel):
+    contractors: list[ContractorResult] = []
 
 
 class PlanListResponse(BaseModel):

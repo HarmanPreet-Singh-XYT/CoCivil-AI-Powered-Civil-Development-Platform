@@ -225,6 +225,9 @@ finance → entitlement → precedent_search → document_generation
 | POST | `/api/v1/plans/{plan_id}/documents/{doc_id}/submit-review` | Mark for review |
 | POST | `/api/v1/plans/{plan_id}/documents/{doc_id}/approve` | Approve |
 | POST | `/api/v1/plans/{plan_id}/documents/{doc_id}/reject` | Reject |
+| POST | `/api/v1/plans/{plan_id}/generate-document/{doc_type}` | Generate/regenerate single doc from completed plan |
+| GET | `/api/v1/plans/{plan_id}/documents/{doc_id}/download` | Download doc as markdown/html/docx |
+| POST | `/api/v1/plans/{plan_id}/export` | Export all docs as single DOCX |
 
 #### Chat Assistant — `app/routers/assistant.py`
 | Method | Route | Purpose |
@@ -326,7 +329,7 @@ finance → entitlement → precedent_search → document_generation
 | File | Purpose |
 |------|---------|
 | `app/services/design_version_service.py` | Design version control: create/list/delete branches, commit versions with auto-compliance check against parcel zoning + OBC interior checks, change summary generation |
-| `app/services/compliance_engine.py` | **Deterministic, no AI.** Rule-by-rule compliance matrix (lot coverage, FSI, height, setbacks, parking, amenity space). Returns `ComplianceResult` with variances needed. |
+| `app/services/compliance_engine.py` | **Deterministic, no AI.** Rule-by-rule compliance matrix (lot coverage, FSI, height, setbacks, parking, amenity space). O.Reg 462/24 (45% lot coverage for ≤3 unit multiplex), Bill 185 (zero parking for ≤10 unit residential). Returns `ComplianceResult` with variances needed. |
 | `app/services/interior_compliance.py` | **Deterministic, no AI.** OBC Part 9 interior compliance: bedroom area/dimension/egress, hallway width, door width, ceiling height, fire travel, ventilation warnings, load-bearing wall detection. Returns `InteriorComplianceResult`. |
 | `app/services/zoning_service.py` | `ZoningAnalysis` builder; normalize zone codes; extract params from map labels |
 | `app/services/zoning_parser.py` | Parse zone strings like `RD(f12.0; a370; d0.6)` into structured standards |
@@ -344,11 +347,12 @@ finance → entitlement → precedent_search → document_generation
 | `app/services/simulation_runtime.py` | Parametric massing envelope; unit mix layout optimization |
 | `app/services/ckan_ingestion.py` | Toronto Open Data CKAN API client; download + parse permits & COA applications |
 | `app/services/geospatial_ingestion.py` | Ingest GeoJSON datasets (parcels, zoning, overlays, dev applications) |
-| `app/services/submission/templates.py` | `DOCUMENT_TEMPLATES`: system/user prompts + max_tokens per doc type; embeds SAFETY_PREAMBLE + _GROUNDING_INSTRUCTION |
-| `app/services/submission/context_builder.py` | Build context dict (parcel, policy, compliance, precedents, financials) for doc generation |
-| `app/services/submission/readiness.py` | `evaluate_submission_readiness()` — checklist scoring |
+| `app/services/contractor_trades.py` | Pure function mapping doc types + massing typology → Google Places trade search terms (max 4) |
+| `app/services/submission/templates.py` | `DOCUMENT_TEMPLATES`: 19 AI templates (system/user prompts + max_tokens) per doc type; embeds SAFETY_PREAMBLE + _GROUNDING_INSTRUCTION |
+| `app/services/submission/context_builder.py` | Build context dict (parcel, policy, compliance, precedents, financials, approval pathway, due diligence flags, OLT grounds, PAC requirements) for doc generation |
+| `app/services/submission/readiness.py` | `evaluate_submission_readiness()` — checklist scoring; `EXTENDED_ESSENTIAL_TYPES` for 27-doc plans (backward-compatible) |
 | `app/services/submission/review.py` | Doc review state machine: submit_for_review, approve_document, reject_document |
-| `app/services/submission/generator.py` | Main doc generation orchestrator: load template → build context → call AI → cache in SubmissionDocument |
+| `app/services/submission/generator.py` | Main doc generation orchestrator: `generate_document()` (AI), `generate_rule_based_document()` (5 deterministic renderers: as-of-right check, required studies, timeline/cost, building permit checklist, professional referral) |
 | `app/services/governance.py` | Data governance checks |
 | `app/services/validation.py` | Input validation helpers |
 | `app/services/benchmarks.py` | Market comparison logic |
@@ -359,7 +363,7 @@ finance → entitlement → precedent_search → document_generation
 
 | File | Task | Purpose |
 |------|------|---------|
-| `app/tasks/plan.py` | `run_plan_generation` | Full plan pipeline: query_parsing → parcel_lookup → policy_resolution → massing → layout → finance → entitlement → precedent → doc_generation. Updates plan.status + pipeline_progress. Pauses for clarification if confidence low. |
+| `app/tasks/plan.py` | `run_plan_generation` | Full plan pipeline: query_parsing → parcel_lookup → policy_resolution → massing → layout → finance → entitlement → precedent → doc_generation. 27 document types (12 AI, 5 rule-based, 10 core). Supports `generate_subset` for targeted doc generation. AI generation with stub fallback. |
 | `app/tasks/entitlement.py` | `run_entitlement_check` | Compliance check; returns compliant/non_compliant/variances_needed + matrix |
 | `app/tasks/entitlement.py` | `run_precedent_search` | Spatial + attribute search; scores matches via `precedent.py`; stores PrecedentMatch rows |
 | `app/tasks/massing.py` | `run_massing` | Generate 3D envelope: height, storeys, GFA, lot_coverage, FSI, 2D geom |
@@ -368,7 +372,7 @@ finance → entitlement → precedent_search → document_generation
 | `app/tasks/document_analysis.py` | `analyze_document` | DXF floor plan parsing, PDF page extraction + vector geometry, AI analysis; populate extracted_data, compliance_findings, floor_plan_data |
 | `app/tasks/ingestion.py` | `ingest_building_permits_task` | Fetch + upsert permits from Toronto CKAN |
 | `app/tasks/ingestion.py` | `ingest_coa_applications_task` | Fetch + upsert COA apps from CKAN |
-| `app/tasks/export.py` | Export task | Render to PDF; apply governance controls; generate signed URL |
+| `app/tasks/export.py` | Export task | Apply governance controls; generate signed URL |
 
 ---
 
@@ -387,8 +391,8 @@ finance → entitlement → precedent_search → document_generation
 | File | Key Schemas |
 |------|------------|
 | `app/schemas/auth.py` | LoginRequest, RegisterRequest, TokenResponse, UserInfo |
-| `app/schemas/plan.py` | PlanGenerateRequest, PlanResponse, PlanListResponse, SubmissionDocumentResponse, PlanSubmissionReadinessResponse |
-| `app/schemas/assistant.py` | AssistantChatRequest, AssistantChatResponse, ProposedAction, ModelParseRequest (zone_code, lot_area_m2), ModelParseResponse (unit_width, tower_shape, warnings) |
+| `app/schemas/plan.py` | PlanGenerateRequest (generate_subset), PlanGenerateDocumentRequest (extra_context), PlanResponse, PlanListResponse, SubmissionDocumentResponse, PlanSubmissionReadinessResponse, ContractorResult, ContractorRecommendationsResponse |
+| `app/schemas/assistant.py` | AssistantChatRequest, AssistantChatResponse, ProposedAction (doc_types), ModelParseRequest (zone_code, lot_area_m2), ModelParseResponse (unit_width, tower_shape, warnings) |
 | `app/schemas/geospatial.py` | ParcelResponse, ParcelDetailResponse, ParcelSearchParams, PolicyStackResponse, ParcelOverlaysResponse |
 | `app/schemas/entitlement.py` | EntitlementRunRequest/Response, PrecedentSearchRequest/Response |
 | `app/schemas/simulation.py` | MassingRequest/Response, LayoutRunRequest/Response, UnitTypeReferenceResponse |
@@ -428,8 +432,8 @@ finance → entitlement → precedent_search → document_generation
 | File | Purpose |
 |------|---------|
 | `src/main.jsx` | React 19 mount; Auth0Provider with hardcoded domain/clientId; localstorage token cache |
-| `src/App.jsx` | Root orchestrator; routing via `currentPage` state ('landing'/'dashboard'); auth gate; multi-component layout; floorPlans + projectId state wired to ModelViewer for upload-driven floor plan viewing |
-| `src/api.js` | HTTP wrapper; base `/api/v1`; reads `localStorage['token']` for Bearer auth; all backend endpoints including design version control, getNearbyApplications for precedent spatial search |
+| `src/App.jsx` | Root orchestrator; routing via `currentPage` state ('landing'/'dashboard'); auth gate; multi-component layout; floorPlans + projectId state; activePlanId state threaded to PolicyPanel + ChatPanel |
+| `src/api.js` | HTTP wrapper; base `/api/v1`; reads `localStorage['token']` for Bearer auth; all backend endpoints including design version control, getNearbyApplications, generatePlan (with generateSubset), regeneratePlanDocument, downloadPlanDocument, exportPlan |
 
 **App.jsx key state:**
 ```
@@ -461,8 +465,11 @@ activeNav, savedParcels, showHistory, searchHistory (localStorage per user)
 | `src/components/BlueprintOverlay.jsx` | Blueprint image overlay | R3F component; loads blueprint page images as textured planes at floor Y offsets; supports per-floor or all-floors display. |
 | `src/components/SearchBar.jsx` | Address search + geocoding | 350ms debounce; Nominatim OSM API scoped to Toronto; 6 suggestions max; Enter/Escape keyboard support |
 | `src/components/Sidebar.jsx` | Left nav panel | 7 nav items: Overview/Massing/Finances/Entitlements/Policies/Datasets/Precedents. History panel. Collapsed/expanded state. |
-| `src/components/PolicyPanel.jsx` | Right-side 7-tab panel | Tabs: Overview (compliance status + file upload zone), Massing (envelope), Policies (accordion), Datasets (overlays), Precedents (live nearby applications with distance/decision), Entitlements (pathway badges + export), Finances (pro forma estimates, assessed value, market comps with tenure toggle). `FileUploadZone` component with drag-drop, multi-file, polling analysis. |
-| `src/components/ChatPanel.jsx` | AI assistant + file upload | Chat with backend `/assistant/chat`. Plan generation polling (30 attempts × 3s). File upload (PDF/img/xlsx/csv, 50MB max). Upload polling (40 attempts × 3s). `parseChatCommand()` regex for special commands. Drag-and-drop. |
+| `src/components/PolicyPanel.jsx` | Right-side 8-tab panel | Tabs: Overview (compliance status + file upload zone), Massing (envelope), Policies (accordion), Datasets (overlays), Precedents (live nearby applications with distance/decision), Entitlements (pathway badges + export), Finances (pro forma estimates, assessed value, market comps with tenure toggle), Documents (gallery with grouped list, preview, regenerate). `FileUploadZone` + `DocumentsTab` components. |
+| `src/components/DocumentGallery.jsx` | Document gallery with sidebar + viewer | Grouped doc list (5 categories: Core Submission, Variance & Compliance, Pathway & Process, Appeals & Responses, Community & Readiness). Status dots. Export All button. |
+| `src/components/DocumentViewer.jsx` | Markdown document viewer | ReactMarkdown rendering, safety preamble banner, download (md/html/docx), regenerate button, review status workflow (submit/approve/reject). |
+| `src/components/ContractorCards.jsx` | Horizontal scrollable row of gold-accent contractor recommendation cards (name, rating, phone, website, trade badge) |
+| `src/components/ChatPanel.jsx` | AI assistant + file upload | Chat with backend `/assistant/chat`. Plan generation polling (30 attempts × 3s) with contractor recommendations on completion. Smart doc generation routing: ≤3 docs from existing plan → regenerate endpoint, else → full pipeline. File upload (PDF/img/xlsx/csv, 50MB max). Upload polling (40 attempts × 3s). `parseChatCommand()` regex for special commands. Drag-and-drop. |
 | `src/components/LandingPage.jsx` | Marketing homepage | Auth0 login/logout. Typewriter effect (10 dev queries, 45ms/char). MapLibre preview. Hero → Story → Vision → Footer. |
 | `src/components/UserBubble.jsx` | Animated user bubble (bottom-right) | Hover expand (44px→260px, 0.45s). Breathing pulse. User avatar + online dot + sign out. |
 | `src/components/LoginPage.jsx` | Legacy login form | **Unused** — replaced by Auth0. Still in codebase. |
@@ -513,7 +520,7 @@ activeNav, savedParcels, showHistory, searchHistory (localStorage per user)
 | `.gitignore` | Git exclusions for local caches, node_modules, oversized Toronto GIS source extracts, and generated UI captures |
 | `.env.example` | Template: DATABASE_URL, REDIS_URL, MINIO settings, JWT_SECRET, AI_PROVIDER, ANTHROPIC_API_KEY, CELERY config |
 | `.env` | Live localhost config; **contains real API key** |
-| `pyproject.toml` | Project: `arterial` v0.1.0, Python ≥3.11. Deps: FastAPI, SQLAlchemy, asyncpg, GeoAlchemy2, pgvector, Celery, Redis, Pydantic, ezdxf. Dev: pytest, ruff. |
+| `pyproject.toml` | Project: `arterial` v0.1.0, Python ≥3.11. Deps: FastAPI, SQLAlchemy, asyncpg, GeoAlchemy2, pgvector, Celery, Redis, Pydantic, ezdxf, python-docx, markdown. Dev: pytest, ruff. |
 | `alembic.ini` | Alembic migration config; script location `./alembic`; logging |
 | `scripts/init-extensions.sql` | PostgreSQL init: uuid-ossp, postgis, vector extensions |
 
@@ -664,6 +671,10 @@ Full table — all routes across all routers:
 | POST | `/api/v1/plans/{id}/documents/{doc_id}/submit-review` | Yes | No | ✓ |
 | POST | `/api/v1/plans/{id}/documents/{doc_id}/approve` | Yes | No | ✓ |
 | POST | `/api/v1/plans/{id}/documents/{doc_id}/reject` | Yes | No | ✓ |
+| POST | `/api/v1/plans/{id}/generate-document/{doc_type}` | Yes | No | ✓ |
+| GET | `/api/v1/plans/{id}/documents/{doc_id}/download?format=` | Yes | No | ✓ |
+| POST | `/api/v1/plans/{id}/export` | Yes | No | ✓ |
+| GET | `/api/v1/plans/{id}/contractors?lat=&lng=` | Yes | No | ✓ |
 | POST | `/api/v1/assistant/chat` | Yes | No | ✓ |
 | GET | `/api/v1/parcels/search` | Yes | No | ✓ |
 | GET | `/api/v1/parcels/{id}` | Yes | No | ✓ |
@@ -712,4 +723,4 @@ Full table — all routes across all routers:
 
 ---
 
-*Last updated: 2026-03-08 (Simplify floor plan editor: remove room catalog, collapse to 5-button toolbar, make compliance panel collapsible with toggle button, streamlined for focused editing)*
+*Last updated: 2026-03-08 (27-document catalog: AI generation wiring, compliance engine fixes (O.Reg 462/24, Bill 185), 17 new doc types, assistant doc_types routing, on-demand regeneration endpoint, document gallery/viewer UI, DOCX download/export)*

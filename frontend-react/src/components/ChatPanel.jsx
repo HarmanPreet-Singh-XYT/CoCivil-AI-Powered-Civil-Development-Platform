@@ -4,12 +4,15 @@ import {
     generatePlan,
     generatePlanFromUpload,
     generateResponseFromUpload,
+    getContractorRecommendations,
     getPlan,
     getPlanDocuments,
+    regeneratePlanDocument,
     uploadDocument,
     getUpload,
     parseModel,
 } from '../api.js';
+import ContractorCards from './ContractorCards.jsx';
 import { parseChatCommand } from '../lib/chatCommands.js';
 import { formatParcelContext } from '../lib/parcelState.js';
 
@@ -50,7 +53,7 @@ function planStartErrorMessage(error, filename = null) {
         : `Failed to start generation: ${error.message}`;
 }
 
-export default function ChatPanel({ parcelContext, onPlanComplete, onToggleExpand, modelParams, onModelUpdate, analyzedUploads }) {
+export default function ChatPanel({ parcelContext, onPlanComplete, onToggleExpand, modelParams, onModelUpdate, analyzedUploads, activePlanId }) {
     const [isExpanded, setIsExpanded] = useState(false);
     const [messages, setMessages] = useState([
         {
@@ -122,12 +125,19 @@ export default function ChatPanel({ parcelContext, onPlanComplete, onToggleExpan
                     const docList = docs.length > 0
                         ? docs.map((d) => `- ${d.title || d.document_type}`).join('\n')
                         : 'No documents generated yet.';
+
+                    // Fetch contractor recommendations
+                    const lat = parcelContext?.latitude ?? parcelContext?.lat ?? 43.6532;
+                    const lng = parcelContext?.longitude ?? parcelContext?.lng ?? -79.3832;
+                    const contractorData = await getContractorRecommendations(planId, lat, lng);
+
                     setMessages((prev) => [...prev, {
                         role: 'assistant',
                         text: `Plan generation complete! Generated documents:\n\n${docList}`,
+                        contractors: contractorData.contractors || [],
                     }]);
                     if (onPlanComplete && plan.summary?.massing) {
-                        onPlanComplete(plan.summary.massing);
+                        onPlanComplete(plan.summary.massing, planId);
                     }
                     return;
                 }
@@ -175,16 +185,36 @@ export default function ChatPanel({ parcelContext, onPlanComplete, onToggleExpan
             role: 'assistant',
             text: `Starting: ${action.label}...`,
         }]);
+
+        const docTypes = action.doc_types;
+        const isSmallSubset = Array.isArray(docTypes) && docTypes.length <= 3;
+
         try {
-            const result = await generatePlan(action.query);
-            pollPlan(result.job_id);
+            // Smart routing: if an active plan exists and we're generating ≤3 docs,
+            // regenerate from existing plan data (no pipeline re-run)
+            if (activePlanId && isSmallSubset) {
+                const results = [];
+                for (const dt of docTypes) {
+                    const doc = await regeneratePlanDocument(activePlanId, dt, {});
+                    results.push(doc);
+                }
+                const docList = results.map((d) => `- ${d.title || d.doc_type}`).join('\n');
+                setMessages((prev) => [...prev, {
+                    role: 'assistant',
+                    text: `Documents generated from existing plan:\n\n${docList}`,
+                }]);
+            } else {
+                // No existing plan or large batch — run full pipeline
+                const result = await generatePlan(action.query, docTypes);
+                pollPlan(result.job_id);
+            }
         } catch (err) {
             setMessages((prev) => [...prev, {
                 role: 'assistant',
                 text: planStartErrorMessage(err),
             }]);
         }
-    }, [pollPlan]);
+    }, [pollPlan, activePlanId]);
 
     const sendMessage = useCallback(async () => {
         const text = inputValue.trim();
@@ -286,7 +316,7 @@ export default function ChatPanel({ parcelContext, onPlanComplete, onToggleExpan
                 filename: u.filename,
                 extracted_data: u.extractedData || null,
             }));
-            const { message, proposedAction, modelUpdate } = await chatWithAssistant({
+            const { message, proposedAction, modelUpdate, contractors } = await chatWithAssistant({
                 messages: nextHistory.slice(-20),
                 parcelContext: parcelContextStr,
                 modelParams: modelParams || null,
@@ -309,6 +339,7 @@ export default function ChatPanel({ parcelContext, onPlanComplete, onToggleExpan
                 text: displayMsg,
                 action: proposedAction || null,
                 actionFired: false,
+                contractors: contractors || [],
             };
             setMessages((prev) => [...prev, assistantMessage]);
             conversationHistoryRef.current = [...nextHistory, { role: 'assistant', text: message }];
@@ -468,6 +499,9 @@ export default function ChatPanel({ parcelContext, onPlanComplete, onToggleExpan
                             <div className="message-avatar">{msg.role === 'assistant' ? 'AI' : 'You'}</div>
                             <div className="message-content">
                                 <p style={{ whiteSpace: 'pre-wrap', margin: 0 }}>{msg.text}</p>
+                                {msg.contractors?.length > 0 && (
+                                    <ContractorCards contractors={msg.contractors} />
+                                )}
                                 {msg.role === 'assistant' && msg.action && !msg.actionFired && (
                                     <button
                                         className="generate-action-btn"

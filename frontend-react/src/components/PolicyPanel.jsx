@@ -1,5 +1,5 @@
 import { useState, useMemo, useCallback, useEffect, useRef } from 'react';
-import { getParcelOverlays, getParcelZoningAnalysis, getPolicyStack, getNearbyApplications, getParcelFinancialSummary, uploadDocument, getUpload } from '../api.js';
+import { getParcelOverlays, getParcelZoningAnalysis, getPolicyStack, getNearbyApplications, getParcelFinancialSummary, uploadDocument, getUpload, getPlanDocuments, regeneratePlanDocument } from '../api.js';
 import { isResolvedParcel, isUnresolvedParcel } from '../lib/parcelState.js';
 
 const UPLOAD_POLL_MS = 3000;
@@ -942,6 +942,103 @@ function mapZoningAnalysis(data) {
     };
 }
 
+function DocumentsTab({ planId }) {
+    const [documents, setDocuments] = useState([]);
+    const [loading, setLoading] = useState(false);
+    const [selectedDoc, setSelectedDoc] = useState(null);
+
+    useEffect(() => {
+        if (!planId) return;
+        let cancelled = false;
+        setLoading(true);
+        getPlanDocuments(planId).then((docs) => {
+            if (!cancelled) {
+                setDocuments(docs);
+                setLoading(false);
+            }
+        }).catch(() => { if (!cancelled) setLoading(false); });
+        return () => { cancelled = true; };
+    }, [planId]);
+
+    const handleRegenerate = useCallback(async (docType) => {
+        try {
+            const doc = await regeneratePlanDocument(planId, docType, {});
+            setDocuments((prev) => {
+                const exists = prev.find((d) => d.doc_type === docType);
+                if (exists) return prev.map((d) => d.doc_type === docType ? doc : d);
+                return [...prev, doc];
+            });
+            setSelectedDoc(doc);
+        } catch (err) {
+            console.error('Regenerate failed:', err);
+        }
+    }, [planId]);
+
+    if (!planId) {
+        return (
+            <div style={{ padding: 20, textAlign: 'center', opacity: 0.7 }}>
+                <p>Generate a plan to view documents.</p>
+                <p style={{ fontSize: 12, marginTop: 8 }}>Use the chat panel to generate a development plan, then view and manage documents here.</p>
+            </div>
+        );
+    }
+
+    if (loading) {
+        return <div style={{ padding: 20, textAlign: 'center' }}>Loading documents...</div>;
+    }
+
+    const selected = selectedDoc || (documents.length > 0 ? documents[0] : null);
+
+    return (
+        <div style={{ display: 'flex', flexDirection: 'column', height: '100%', overflow: 'hidden' }}>
+            <div style={{ padding: '8px 12px', borderBottom: '1px solid #eee', fontSize: 12, color: '#666' }}>
+                {documents.length} document{documents.length !== 1 ? 's' : ''} generated
+            </div>
+            <div style={{ flex: 1, overflow: 'auto', padding: '8px 0' }}>
+                {documents.map((doc) => (
+                    <button
+                        key={doc.id}
+                        onClick={() => setSelectedDoc(doc)}
+                        style={{
+                            display: 'flex', alignItems: 'center', gap: 8,
+                            width: '100%', padding: '8px 12px', border: 'none', cursor: 'pointer',
+                            background: selected?.id === doc.id ? '#f0f4ff' : 'transparent',
+                            borderLeft: selected?.id === doc.id ? '3px solid #3b82f6' : '3px solid transparent',
+                            textAlign: 'left', fontSize: 13,
+                        }}
+                    >
+                        <span style={{
+                            width: 8, height: 8, borderRadius: '50%', flexShrink: 0,
+                            background: doc.review_status === 'approved' ? '#4caf50' : doc.review_status === 'under_review' ? '#ff9800' : '#9e9e9e',
+                        }} />
+                        <span style={{ overflow: 'hidden', textOverflow: 'ellipsis', whiteSpace: 'nowrap' }}>{doc.title}</span>
+                    </button>
+                ))}
+            </div>
+            {selected && (
+                <div style={{ borderTop: '1px solid #eee', padding: 12, maxHeight: '50%', overflow: 'auto' }}>
+                    <div style={{ display: 'flex', justifyContent: 'space-between', alignItems: 'center', marginBottom: 8 }}>
+                        <strong style={{ fontSize: 13 }}>{selected.title}</strong>
+                        <button
+                            onClick={() => handleRegenerate(selected.doc_type)}
+                            style={{ fontSize: 11, padding: '2px 8px', border: '1px solid #ccc', borderRadius: 4, cursor: 'pointer', background: '#fff' }}
+                        >
+                            Regenerate
+                        </button>
+                    </div>
+                    <div style={{ fontSize: 12, lineHeight: 1.5, maxHeight: 300, overflow: 'auto', whiteSpace: 'pre-wrap', color: '#333' }}>
+                        {(selected.content_text || '').slice(0, 2000)}
+                        {(selected.content_text || '').length > 2000 && '...'}
+                    </div>
+                    <div style={{ marginTop: 8, fontSize: 11, color: '#888' }}>
+                        Status: {selected.review_status} | Format: {selected.format}
+                    </div>
+                </div>
+            )}
+        </div>
+    );
+}
+
 const TAB_TITLES = {
     overview: 'Project Overview',
     massing: 'Building Massing',
@@ -950,11 +1047,12 @@ const TAB_TITLES = {
     policies: 'Policy Extracts',
     datasets: 'Data Sources',
     precedents: 'Precedents',
+    documents: 'Documents',
 };
 
 const ZONING_TABS = new Set(['overview', 'massing', 'entitlements']);
 
-export default function PolicyPanel({ parcel, isOpen, onClose, activeNav, savedParcels, onSaveParcel, onUploadAnalyzed }) {
+export default function PolicyPanel({ parcel, isOpen, onClose, activeNav, savedParcels, onSaveParcel, onUploadAnalyzed, activePlanId }) {
     const [proposal, setProposal] = useState({ height: '', fsi: '', storeys: '', lotCoverage: '' });
     const [policies, setPolicies] = useState([]);
     const [overlays, setOverlays] = useState([]);
@@ -1060,6 +1158,8 @@ export default function PolicyPanel({ parcel, isOpen, onClose, activeNav, savedP
                 return <EntitlementsTab parcel={parcel} zoning={zoning} proposal={proposal} />;
             case 'finances':
                 return <FinancesTab parcel={parcel} />;
+            case 'documents':
+                return <DocumentsTab planId={activePlanId} />;
             default:
                 return <OverviewTab parcel={parcel} zoning={zoning} proposal={proposal} setProposal={setProposal} onUploadComplete={onUploadAnalyzed} />;
         }

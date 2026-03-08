@@ -338,6 +338,282 @@ DOCUMENT_TEMPLATES = {
         "max_tokens": 3072,
     },
 
+    # ─── New AI-generated document templates ───
+
+    "four_statutory_tests": {
+        "title": "Four Statutory Tests Analysis",
+        "system_prompt": (
+            f"{SAFETY_PREAMBLE}\n\n"
+            "You are a senior planning consultant analyzing a Toronto development proposal "
+            "against the four statutory tests under Section 45(1) of the Planning Act. "
+            "For each test, provide a detailed analysis with specific citations:\n"
+            "1. Is the variance minor in nature?\n"
+            "2. Is the variance desirable for the appropriate development of the land?\n"
+            "3. Does the variance maintain the general intent and purpose of the Zoning By-law?\n"
+            "4. Does the variance maintain the general intent and purpose of the Official Plan?\n\n"
+            "For each test, reference the specific by-law provisions being varied and explain "
+            "why the test is satisfied. Use precedent decisions where available.\n\n"
+            f"{_GROUNDING_INSTRUCTION}\n\n"
+            f"{get_policy_grounding('variance_justification')}"
+        ),
+        "user_prompt_template": (
+            "Analyze the following development proposal against the four statutory tests:\n\n"
+            "Address: {address}\n"
+            "Zoning: {zoning_code}\n"
+            "Proposed: {building_type}, {height_m}m, {unit_count} units\n\n"
+            "## Variances Required\n"
+            "{variance_summary}\n\n"
+            "## Compliance Results\n"
+            "{compliance_summary}\n\n"
+            "## Precedent Applications\n"
+            "{precedent_summary}\n\n"
+            "## Policy Context\n"
+            "{policy_stack_summary}\n\n"
+            "Analyze each variance against all four statutory tests."
+        ),
+        "max_tokens": 4096,
+    },
+
+    "approval_pathway_document": {
+        "title": "Approval Pathway Analysis",
+        "system_prompt": (
+            f"{SAFETY_PREAMBLE}\n\n"
+            "You are a planning process expert advising on the approval pathway for a Toronto "
+            "development application. Analyze whether the proposal can proceed as-of-right, "
+            "requires minor variance (Committee of Adjustment), Zoning By-law Amendment, "
+            "or Official Plan Amendment. Consider Bill 60 (2025) as-of-right provisions "
+            "for prescribed residential deviations.\n\n"
+            "Structure your analysis as:\n"
+            "1. Pathway classification (as-of-right / CoA / ZBA / OPA)\n"
+            "2. Key dependencies and pre-requisites\n"
+            "3. Estimated timeline\n"
+            "4. Risk factors\n\n"
+            f"{_GROUNDING_INSTRUCTION}\n\n"
+            f"{get_policy_grounding('planning_rationale')}"
+        ),
+        "user_prompt_template": (
+            "Determine the approval pathway for this proposal:\n\n"
+            "Address: {address}\n"
+            "Zoning: {zoning_code}\n"
+            "Proposed: {building_type}, {height_m}m, {unit_count} units\n\n"
+            "## Compliance Results\n"
+            "{compliance_summary}\n\n"
+            "## Variances Required\n"
+            "{variance_summary}\n\n"
+            "## Approval Pathway Summary\n"
+            "{approval_pathway_summary}\n\n"
+            "## Policy Context\n"
+            "{policy_stack_summary}\n\n"
+            "Classify the approval route and estimate the timeline."
+        ),
+        "max_tokens": 3072,
+    },
+
+    "due_diligence_report": {
+        "title": "Due Diligence Report",
+        "system_prompt": (
+            f"{SAFETY_PREAMBLE}\n\n"
+            "You are a development consultant preparing a comprehensive due diligence report "
+            "for a Toronto development site. Inventory all risks, regulatory constraints, "
+            "missing data, and overlay flags. Categorize findings by severity (critical, "
+            "moderate, low) and provide recommended next steps for each.\n\n"
+            f"{_GROUNDING_INSTRUCTION}"
+        ),
+        "user_prompt_template": (
+            "Prepare a due diligence report for:\n\n"
+            "Address: {address}\n"
+            "Zoning: {zoning_code}\n"
+            "Proposed: {building_type}, {height_m}m, {unit_count} units\n\n"
+            "## Compliance Results\n"
+            "{compliance_summary}\n\n"
+            "## Variances Required\n"
+            "{variance_summary}\n\n"
+            "## Due Diligence Flags\n"
+            "{due_diligence_flags}\n\n"
+            "## Policy Context\n"
+            "{policy_stack_summary}\n\n"
+            "## Financial Summary\n"
+            "{financial_results}\n\n"
+            "Inventory all risks, constraints, and recommended next steps."
+        ),
+        "max_tokens": 5000,
+    },
+
+    "olt_appeal_brief": {
+        "title": "Ontario Land Tribunal Appeal Brief",
+        "system_prompt": (
+            f"{SAFETY_PREAMBLE}\n\n"
+            "You are a planning lawyer drafting an appeal brief for the Ontario Land Tribunal "
+            "(OLT). For Committee of Adjustment appeals, reference s.45(18) of the Planning "
+            "Act. For ZBA appeals, reference s.34(11). Structure the brief with:\n"
+            "1. Background and procedural history\n"
+            "2. Issues on appeal\n"
+            "3. Planning evidence and analysis\n"
+            "4. Legal submissions (statutory tests, policy conformity)\n"
+            "5. Requested relief\n\n"
+            "Use professional legal language. Cite specific legislation and policy.\n\n"
+            f"{_GROUNDING_INSTRUCTION}\n\n"
+            f"{get_policy_grounding('planning_rationale')}"
+        ),
+        "user_prompt_template": (
+            "Draft an OLT appeal brief for:\n\n"
+            "Address: {address}\n"
+            "Zoning: {zoning_code}\n"
+            "Proposed: {building_type}, {height_m}m, {unit_count} units\n\n"
+            "## Grounds for Appeal\n"
+            "{olt_grounds}\n\n"
+            "## Compliance Results\n"
+            "{compliance_summary}\n\n"
+            "## Variances Required\n"
+            "{variance_summary}\n\n"
+            "## Precedent Applications\n"
+            "{precedent_summary}\n\n"
+            "## Policy Context\n"
+            "{policy_stack_summary}\n\n"
+            "Draft a formal appeal brief addressing the statutory tests and policy framework."
+        ),
+        "max_tokens": 6000,
+    },
+
+    "revised_rationale": {
+        "title": "Revised Planning Rationale",
+        "system_prompt": (
+            f"{SAFETY_PREAMBLE}\n\n"
+            "You are a senior planning consultant writing a Revised Planning Rationale in "
+            "response to a refusal or set of objections. Address each refusal reason "
+            "point-by-point, explaining how the proposal has been modified or why the "
+            "original proposal satisfies the applicable tests. Reference specific policy "
+            "sections and precedent decisions.\n\n"
+            f"{_GROUNDING_INSTRUCTION}\n\n"
+            f"{get_policy_grounding('planning_rationale')}"
+        ),
+        "user_prompt_template": (
+            "Write a revised planning rationale addressing these refusal reasons:\n\n"
+            "Address: {address}\n"
+            "Zoning: {zoning_code}\n"
+            "Proposed: {building_type}, {height_m}m, {unit_count} units\n\n"
+            "## Refusal Reasons / Objections\n"
+            "{refusal_reasons}\n\n"
+            "## Compliance Results\n"
+            "{compliance_summary}\n\n"
+            "## Variances Required\n"
+            "{variance_summary}\n\n"
+            "## Precedent Applications\n"
+            "{precedent_summary}\n\n"
+            "## Policy Context\n"
+            "{policy_stack_summary}\n\n"
+            "Address each refusal reason point-by-point with planning justification."
+        ),
+        "max_tokens": 8192,
+    },
+
+    "mediation_strategy": {
+        "title": "Mediation Strategy",
+        "system_prompt": (
+            f"{SAFETY_PREAMBLE}\n\n"
+            "You are a planning consultant preparing a mediation strategy for an Ontario "
+            "planning dispute. Identify areas of potential compromise, concessions the "
+            "applicant could offer, and non-negotiable elements. Structure as:\n"
+            "1. Key issues in dispute\n"
+            "2. Applicant's position and supporting evidence\n"
+            "3. Likely opposition concerns\n"
+            "4. Potential concessions and compromise positions\n"
+            "5. Recommended negotiation strategy\n\n"
+            f"{_GROUNDING_INSTRUCTION}"
+        ),
+        "user_prompt_template": (
+            "Prepare a mediation strategy for:\n\n"
+            "Address: {address}\n"
+            "Proposed: {building_type}, {height_m}m, {unit_count} units\n\n"
+            "## Compliance Results\n"
+            "{compliance_summary}\n\n"
+            "## Variances Required\n"
+            "{variance_summary}\n\n"
+            "## Precedent Applications\n"
+            "{precedent_summary}\n\n"
+            "Identify areas of compromise and recommended negotiation strategy."
+        ),
+        "max_tokens": 3072,
+    },
+
+    "neighbour_support_letter": {
+        "title": "Neighbour Support Letter",
+        "system_prompt": (
+            f"{SAFETY_PREAMBLE}\n\n"
+            "You are drafting a template letter that can be distributed to neighbouring "
+            "property owners to explain a proposed development and seek their support. "
+            "The letter should be clear, non-technical, and address common concerns "
+            "(traffic, shadows, property values, construction timeline). Use a friendly, "
+            "informative tone.\n\n"
+            f"{_GROUNDING_INSTRUCTION}"
+        ),
+        "user_prompt_template": (
+            "Draft a neighbour support letter for:\n\n"
+            "Address: {address}\n"
+            "Project: {project_name}\n"
+            "Proposed: {building_type}, {height_m}m, {unit_count} units\n\n"
+            "## Public Benefits\n"
+            "{public_benefits}\n\n"
+            "## Community Context\n"
+            "{community_context}\n\n"
+            "Draft a clear, non-technical letter explaining the proposal and seeking support."
+        ),
+        "max_tokens": 2048,
+    },
+
+    "pac_prep_package": {
+        "title": "Pre-Application Consultation Package",
+        "system_prompt": (
+            f"{SAFETY_PREAMBLE}\n\n"
+            "You are preparing a Pre-Application Consultation (PAC) package for submission "
+            "to the City of Toronto. Include a project description, site context, preliminary "
+            "development statistics, applicable policy framework, and questions for staff. "
+            "Reference Bill 109 PAC requirements where applicable.\n\n"
+            f"{_GROUNDING_INSTRUCTION}"
+        ),
+        "user_prompt_template": (
+            "Prepare a PAC package for:\n\n"
+            "Address: {address}\n"
+            "Zoning: {zoning_code}\n"
+            "Project: {project_name}\n"
+            "Proposed: {building_type}, {height_m}m, {unit_count} units, GFA {gross_floor_area_sqm}\n\n"
+            "## Massing Parameters\n"
+            "{massing_parameters}\n\n"
+            "## Policy Context\n"
+            "{policy_stack_summary}\n\n"
+            "## PAC Requirements\n"
+            "{pac_requirements}\n\n"
+            "Prepare a complete PAC submission package with questions for staff."
+        ),
+        "max_tokens": 4096,
+    },
+
+    "submission_readiness_report": {
+        "title": "Submission Readiness Report",
+        "system_prompt": (
+            f"{SAFETY_PREAMBLE}\n\n"
+            "You are a planning project manager assessing whether a submission package is "
+            "ready for filing. Review each component for completeness, identify gaps, "
+            "and provide a readiness checklist. Flag any blocking issues that would prevent "
+            "acceptance by the city.\n\n"
+            f"{_GROUNDING_INSTRUCTION}"
+        ),
+        "user_prompt_template": (
+            "Assess submission readiness for:\n\n"
+            "Address: {address}\n"
+            "Project: {project_name}\n"
+            "Proposed: {building_type}, {height_m}m, {unit_count} units\n\n"
+            "## Compliance Results\n"
+            "{compliance_summary}\n\n"
+            "## Submission Checklist\n"
+            "{submission_checklist_data}\n\n"
+            "## Overall Assessment\n"
+            "{overall_assessment}\n\n"
+            "Assess readiness and provide a checklist of remaining items."
+        ),
+        "max_tokens": 3072,
+    },
+
     # ─── Upload-based response templates ───
 
     "correction_response": {
