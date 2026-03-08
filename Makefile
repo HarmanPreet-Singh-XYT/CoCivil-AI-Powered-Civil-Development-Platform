@@ -1,4 +1,4 @@
-.PHONY: infra-up infra-down infra-logs doctor migrate run-api run-worker run-frontend seed-toronto seed-policies audit-toronto test-backend test-frontend
+.PHONY: infra-up infra-down infra-logs doctor migrate run-api run-frontend seed-toronto seed-policies audit-toronto test-backend test-frontend
 
 DATA_DIR ?= data
 FIXTURE ?= tests/fixtures/benchmarks/toronto_core.json
@@ -27,9 +27,6 @@ migrate:
 
 run-api:
 	uvicorn app.main:app --reload
-
-run-worker:
-	celery -A app.worker:celery_app worker --loglevel=info
 
 run-frontend:
 	npm --prefix frontend-react run dev

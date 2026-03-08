@@ -7,11 +7,12 @@ import PolicyPanel from './components/PolicyPanel.jsx';
 import ChatPanel from './components/ChatPanel.jsx';
 import InfrastructureLayerControl from './components/InfrastructureLayerControl.jsx';
 import LandingPage from './components/LandingPage.jsx';
-import { searchParcels } from './api.js';
+import { searchParcels, getNearbyPipelines, getNearbyBridges } from './api.js';
 import { buildParcelState, isResolvedParcel } from './lib/parcelState.js';
 import './landing.css';
 
 const ModelViewer = lazy(() => import('./components/ModelViewer.jsx'));
+const InfrastructureViewer = lazy(() => import('./components/InfrastructureViewer.jsx').catch(() => ({ default: () => null })));
 
 export default function App() {
   const { isLoading, isAuthenticated, loginWithRedirect, user } = useAuth0();
@@ -28,19 +29,29 @@ export default function App() {
   const [isModelOpen, setIsModelOpen] = useState(false);
   const [analyzedUploads, setAnalyzedUploads] = useState([]);
   const [floorPlans, setFloorPlans] = useState(null);
+  const [pipelineData, setPipelineData] = useState(null);
   const [projectId, setProjectId] = useState(null);
   const [activePlanId, setActivePlanId] = useState(null);
+  const [assetType, setAssetType] = useState('building');
 
   const handleUploadAnalyzed = useCallback((upload) => {
     setAnalyzedUploads((prev) => {
-      // Deduplicate by id
       if (prev.some((u) => u.id === upload.id)) return prev;
       return [...prev, upload];
     });
-    // If upload has floor plan data, set it and open model viewer
+    // Pipeline DXF
+    if (upload.extractedData?.pipeline_network) {
+      setPipelineData(upload.extractedData.pipeline_network);
+      setProjectId(upload.id);
+      setAssetType('pipeline');
+      setIsModelOpen(true);
+      return;
+    }
+    // Building DXF / floor plans
     if (upload.extractedData?.floor_plans) {
       setFloorPlans(upload.extractedData.floor_plans);
-      setProjectId(upload.id); // Use upload id as project scope
+      setProjectId(upload.id);
+      setAssetType('building');
       setIsModelOpen(true);
     }
   }, []);
@@ -213,6 +224,38 @@ export default function App() {
     }
   }, [isLoading, isAuthenticated, currentPage, loginWithRedirect]);
 
+  // Load infrastructure data when asset type changes or map center moves
+  useEffect(() => {
+    if (currentPage !== 'dashboard' || assetType === 'building') return;
+    const map = mapRef.current?.getMap();
+    if (!map) return;
+
+    let cancelled = false;
+    const loadInfraData = async () => {
+      const center = map.getCenter();
+      const lat = center.lat;
+      const lng = center.lng;
+      try {
+        if (assetType === 'pipeline') {
+          const data = await getNearbyPipelines(lat, lng, 2000);
+          if (!cancelled && mapRef.current) mapRef.current.setPipelines(data);
+        } else if (assetType === 'bridge') {
+          const data = await getNearbyBridges(lat, lng, 5000);
+          if (!cancelled && mapRef.current) mapRef.current.setBridges(data);
+        }
+      } catch (err) {
+        // Silently fail — infrastructure data is optional context
+      }
+    };
+
+    loadInfraData();
+
+    // Reload when map stops moving
+    const onMoveEnd = () => loadInfraData();
+    map.on('moveend', onMoveEnd);
+    return () => { cancelled = true; map.off('moveend', onMoveEnd); };
+  }, [assetType, currentPage]);
+
   useEffect(() => {
     if (typeof document === 'undefined') return undefined;
 
@@ -225,9 +268,10 @@ export default function App() {
 
     // Update persistent map padding so "center" = center of visible gap
     if (isDashboard && mapRef.current?.getMap()) {
-      const left = isSidebarCollapsed ? 52 : 160;
-      const right = isPanelOpen ? 380 : 0;
-      const bottom = isChatExpanded ? 328 : 48;
+      const styles = getComputedStyle(document.documentElement);
+      const left = parseInt(styles.getPropertyValue('--sidebar-width')) || 160;
+      const right = isPanelOpen ? (parseInt(styles.getPropertyValue('--panel-width')) || 380) : 0;
+      const bottom = isChatExpanded ? ((parseInt(styles.getPropertyValue('--chat-height')) || 280) + 48) : 48;
       mapRef.current.getMap().easeTo({
         padding: { left, right, top: 0, bottom },
         duration: 300,
@@ -274,6 +318,7 @@ export default function App() {
         isSidebarCollapsed={isSidebarCollapsed}
         isChatExpanded={isChatExpanded}
         isModelOpen={isModelOpen}
+        assetType={assetType}
       />
       <InfrastructureLayerControl mapRef={mapRef} />
       <SearchBar onLocationSelected={handleLocationSelected} />
@@ -287,6 +332,8 @@ export default function App() {
         onHistoryBack={() => setShowHistory(false)}
         historyItems={searchHistory}
         onHistoryItemClick={handleHistoryItemClick}
+        assetType={assetType}
+        onAssetTypeChange={setAssetType}
       />
       <PolicyPanel
         parcel={selectedParcel}
@@ -297,6 +344,7 @@ export default function App() {
         onSaveParcel={handleSaveParcel}
         onUploadAnalyzed={handleUploadAnalyzed}
         activePlanId={activePlanId}
+        assetType={assetType}
       />
       {!isPanelOpen && (
         <button
@@ -321,6 +369,7 @@ export default function App() {
         onModelUpdate={(params) => { setModelParams(params); setIsModelOpen(true); }}
         analyzedUploads={analyzedUploads}
         activePlanId={activePlanId}
+        assetType={assetType}
         onPlanComplete={(massing, planId) => {
           if (planId) setActivePlanId(planId);
           if (mapRef.current && selectedParcel?.geom) {
@@ -337,18 +386,32 @@ export default function App() {
         }}
       />
       <Suspense fallback={null}>
-        <ModelViewer
-          isOpen={isModelOpen}
-          onClose={() => setIsModelOpen(false)}
-          parcelGeoJSON={selectedParcel?.geom}
-          modelParams={modelParams}
-          isPanelOpen={isPanelOpen}
-          isSidebarCollapsed={isSidebarCollapsed}
-          isChatExpanded={isChatExpanded}
-          floorPlans={floorPlans}
-          projectId={projectId}
-          parcelId={selectedParcel?.id}
-        />
+        {assetType === 'building' ? (
+          <ModelViewer
+            isOpen={isModelOpen}
+            onClose={() => setIsModelOpen(false)}
+            parcelGeoJSON={selectedParcel?.geom}
+            modelParams={modelParams}
+            isPanelOpen={isPanelOpen}
+            isSidebarCollapsed={isSidebarCollapsed}
+            isChatExpanded={isChatExpanded}
+            floorPlans={floorPlans}
+            projectId={projectId}
+            parcelId={selectedParcel?.id}
+          />
+        ) : (
+          <InfrastructureViewer
+            isOpen={isModelOpen}
+            onClose={() => setIsModelOpen(false)}
+            modelParams={modelParams}
+            isPanelOpen={isPanelOpen}
+            isSidebarCollapsed={isSidebarCollapsed}
+            isChatExpanded={isChatExpanded}
+            assetType={assetType}
+            pipelineData={pipelineData}
+            onPipelineDataChange={setPipelineData}
+          />
+        )}
       </Suspense>
     </>
   );

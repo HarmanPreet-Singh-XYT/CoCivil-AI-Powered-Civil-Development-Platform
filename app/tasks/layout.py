@@ -9,13 +9,10 @@ from app.services.thin_slice_runtime import (
     resolve_template,
     resolve_unit_types,
 )
-from app.worker import celery_app
-
 logger = structlog.get_logger()
 
 
-@celery_app.task(bind=True, name="app.tasks.layout.run_layout")
-def run_layout(self, job_id: str, massing_id: str, params: dict | None = None):
+def run_layout(job_id: str, massing_id: str, params: dict | None = None):
     """Run unit mix / layout optimization for a massing.
 
     TODO: Implement LP-based layout optimization (OR-Tools):

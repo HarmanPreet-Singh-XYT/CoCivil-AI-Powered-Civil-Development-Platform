@@ -87,6 +87,7 @@ class Project(Base, UUIDPrimaryKey, TimestampMixin):
     name: Mapped[str] = mapped_column(String, nullable=False)
     description: Mapped[Optional[str]] = mapped_column(Text, nullable=True)
     status: Mapped[str] = mapped_column(String, nullable=False, default="active", server_default="active")
+    asset_type: Mapped[str] = mapped_column(String(50), nullable=False, default="building", server_default="building")
 
     organization: Mapped["Organization"] = relationship(back_populates="projects")
     creator: Mapped["User"] = relationship(foreign_keys=[created_by])

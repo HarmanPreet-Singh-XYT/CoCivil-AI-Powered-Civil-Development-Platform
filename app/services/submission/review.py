@@ -116,7 +116,7 @@ def submit_for_review_sync(
     doc_id: uuid.UUID,
     user_id: uuid.UUID,
 ) -> SubmissionDocument:
-    """Sync version for Celery tasks."""
+    """Sync version for background tasks."""
     doc = db.query(SubmissionDocument).filter(SubmissionDocument.id == doc_id).one_or_none()
     if doc is None:
         raise ValueError(f"Document not found: {doc_id}")

@@ -10,13 +10,10 @@ from app.services.thin_slice_runtime import (
     resolve_assumption_set,
     resolve_unit_types,
 )
-from app.worker import celery_app
-
 logger = structlog.get_logger()
 
 
-@celery_app.task(bind=True, name="app.tasks.finance.run_financial_analysis")
-def run_financial_analysis(self, job_id: str, scenario_id: str, params: dict | None = None):
+def run_financial_analysis(job_id: str, scenario_id: str, params: dict | None = None):
     """Run financial pro forma analysis for a scenario.
 
     TODO: Implement pro forma engine:

@@ -10,6 +10,7 @@ from sqlalchemy.ext.asyncio import AsyncSession
 
 from app.models.design_version import DesignBranch, DesignVersion
 from app.models.geospatial import Parcel
+from app.models.tenant import Project
 
 logger = structlog.get_logger()
 
@@ -97,8 +98,22 @@ async def commit_version(
     parent = await get_latest(db, branch_id)
     parent_id = parent.id if parent else None
 
+    # Look up project asset_type via the branch
+    asset_type = "building"
+    branch_result = await db.execute(
+        select(DesignBranch).where(DesignBranch.id == branch_id)
+    )
+    branch = branch_result.scalar_one_or_none()
+    if branch:
+        proj_result = await db.execute(
+            select(Project).where(Project.id == branch.project_id)
+        )
+        project = proj_result.scalar_one_or_none()
+        if project:
+            asset_type = project.asset_type
+
     # Compute compliance if parcel_id provided
-    compliance = await compute_compliance(db, floor_plans, model_params, parcel_id)
+    compliance = await compute_compliance(db, floor_plans, model_params, parcel_id, asset_type=asset_type)
 
     # Compute change summary
     change_summary = _compute_change_summary(parent, floor_plans, model_params)
@@ -166,9 +181,39 @@ async def compute_compliance(
     floor_plans: dict | None,
     model_params: dict | None,
     parcel_id: uuid.UUID | None,
+    asset_type: str = "building",
 ) -> dict:
     """Compute compliance of design against parcel's zoning standards."""
-    if not parcel_id or not model_params:
+    if not model_params:
+        return {"status": "unknown", "details": {}, "variance_items": [], "blocking_issues": []}
+
+    # Dispatch by asset_type for infrastructure
+    if asset_type == "pipeline":
+        from dataclasses import asdict
+        from app.services.infrastructure_compliance import check_pipeline_compliance
+        pipe_type = model_params.get("pipe_type", "water_main")
+        result = check_pipeline_compliance(pipe_type, model_params)
+        return {
+            "status": "as_of_right" if result.overall_compliant else "needs_variance",
+            "details": {r.parameter: {"permitted": r.permitted_value, "proposed": r.proposed_value, "status": "ok" if r.compliant else "variance"} for r in result.rules},
+            "variance_items": [r.note or r.parameter for r in result.variances_needed],
+            "blocking_issues": [],
+        }
+
+    if asset_type == "bridge":
+        from dataclasses import asdict
+        from app.services.infrastructure_compliance import check_bridge_compliance
+        bridge_type = model_params.get("bridge_type", "road_bridge")
+        result = check_bridge_compliance(bridge_type, model_params)
+        return {
+            "status": "as_of_right" if result.overall_compliant else "needs_variance",
+            "details": {r.parameter: {"permitted": r.permitted_value, "proposed": r.proposed_value, "status": "ok" if r.compliant else "variance"} for r in result.rules},
+            "variance_items": [r.note or r.parameter for r in result.variances_needed],
+            "blocking_issues": [],
+        }
+
+    # Default: building compliance
+    if not parcel_id:
         return {"status": "unknown", "details": {}, "variance_items": [], "blocking_issues": []}
 
     # Look up parcel and its zoning

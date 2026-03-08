@@ -1,5 +1,6 @@
 """Upload REST endpoints for document upload + AI analysis pipeline."""
 
+import threading
 import uuid
 
 import structlog
@@ -60,12 +61,19 @@ async def upload_document(
     doc_id = uuid.uuid4()
     is_dxf = filename.lower().endswith(".dxf")
 
-    # DXF files: parse inline — no S3, no Celery, no DB needed
+    # DXF files: parse inline — no S3, no DB needed
     if is_dxf:
-        from app.services.dxf_parser import parse_dxf
+        from app.services.dxf_parser import detect_dxf_type, parse_dxf
 
         try:
-            floor_plan_data = parse_dxf(file_bytes)
+            dxf_type = detect_dxf_type(file_bytes)
+            if dxf_type == "pipeline":
+                from app.services.pipeline_dxf_parser import parse_pipeline_dxf
+                data = parse_pipeline_dxf(file_bytes)
+                extracted_data = {"pipeline_network": data}
+            else:
+                data = parse_dxf(file_bytes)
+                extracted_data = {"floor_plans": data}
         except Exception as e:
             logger.warning("upload.dxf_parse_failed", error=str(e))
             raise HTTPException(status_code=422, detail=f"DXF parsing failed: {e}")
@@ -78,10 +86,10 @@ async def upload_document(
             content_type=content_type,
             file_size_bytes=len(file_bytes),
             location=f"{settings.API_V1_PREFIX}/uploads/{doc_id}",
-            extracted_data={"floor_plans": floor_plan_data},
+            extracted_data=extracted_data,
         )
 
-    # All other files: upload to S3 and kick off Celery analysis
+    # All other files: upload to S3 and kick off background analysis
     from app.services.storage import ensure_bucket_exists, upload_file
 
     object_key = f"uploads/{user['organization_id']}/{doc_id}/{filename}"
@@ -105,7 +113,7 @@ async def upload_document(
 
     from app.tasks.document_analysis import analyze_document
 
-    task = analyze_document.delay(str(doc_id))
+    threading.Thread(target=analyze_document, args=(str(doc_id),), daemon=True).start()
 
     return UploadResponse(
         id=doc_id,
@@ -283,7 +291,7 @@ async def generate_plan_from_upload(
     doc.plan_id = plan.id
     await db.flush()
 
-    task = run_plan_generation.delay(str(plan.id), query)
+    threading.Thread(target=run_plan_generation, args=(str(plan.id), query), daemon=True).start()
 
     return {
         "plan_id": plan.id,

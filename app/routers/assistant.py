@@ -7,6 +7,7 @@ from fastapi import APIRouter, HTTPException, status
 
 from app.ai.factory import get_ai_provider
 from app.config import settings
+from app.data.infrastructure_policy import ONTARIO_INFRASTRUCTURE_HIERARCHY, INFRASTRUCTURE_APPROVAL_PROCESS
 from app.data.ontario_policy import (
     MINOR_VARIANCE_FOUR_TESTS,
     ONTARIO_POLICY_HIERARCHY,
@@ -15,7 +16,11 @@ from app.data.ontario_policy import (
     TORONTO_ZONING_KEY_RULES,
 )
 from app.data.toronto_zoning import ZONE_STANDARDS
-from app.schemas.assistant import AssistantChatRequest, AssistantChatResponse, ContractorRecommendation, ModelParseRequest, ModelParseResponse, ModelUpdate, ProposedAction
+from app.schemas.assistant import (
+    AssistantChatRequest, AssistantChatResponse, ContractorRecommendation,
+    InfraModelParseRequest, InfraModelParseResponse,
+    ModelParseRequest, ModelParseResponse, ModelUpdate, ProposedAction,
+)
 from app.services.zoning_parser import extract_zone_category
 
 logger = logging.getLogger(__name__)
@@ -113,6 +118,13 @@ Maximum 4 trades. You MUST include this marker whenever contractors or professio
 - Distinguish as-of-right from what needs a variance or higher approval
 - Never fabricate data — if parcel data is not provided, say so clearly
 - Plain text only, no markdown headers in responses (the ACTION, MODEL, and CONTRACTORS markers are not visible to the user — always include them when applicable)
+
+## Infrastructure Knowledge
+You also have knowledge of civil infrastructure standards (pipelines, bridges) for Ontario:
+- Water mains, sanitary sewers, storm sewers, gas lines — OPSD/OPSS/AWWA/MTO standards
+- Bridges and culverts — CSA S6:19, CL-625 loading
+- Environmental Compliance Approvals (ECA), Class EA, TSSA authorization
+- When asked about infrastructure, apply the same precision and citation style as for building compliance.
 """
 
 
@@ -529,3 +541,64 @@ async def chat_with_assistant(body: AssistantChatRequest) -> AssistantChatRespon
         model_update=model_update,
         contractors=contractors or None,
     )
+
+
+@router.post("/assistant/parse-infra-model", response_model=InfraModelParseResponse, status_code=status.HTTP_200_OK)
+async def parse_infra_model(body: InfraModelParseRequest) -> InfraModelParseResponse:
+    """Parse a natural-language infrastructure description into model parameters."""
+    if not settings.AI_API_KEY:
+        raise HTTPException(
+            status_code=status.HTTP_503_SERVICE_UNAVAILABLE,
+            detail="AI assistant is not configured on the server",
+        )
+
+    provider = get_ai_provider()
+    current = body.current_params or {}
+
+    if body.asset_type == "pipeline":
+        prompt = f"""Extract pipeline parameters from this description. Return a JSON object with exactly these fields:
+- pipe_type (string): one of water_main | sanitary_sewer | storm_sewer | gas_line
+- material (string): one of PVC | HDPE | DI | CSP | RCP
+- diameter_mm (float): pipe diameter in millimetres
+- depth_m (float): burial depth in metres
+- slope_pct (float): pipe slope as percentage
+
+Current parameters (baseline for unspecified values):
+{json.dumps(current)}
+
+Description: "{body.text}"
+
+Return only valid JSON, no explanation."""
+    else:
+        prompt = f"""Extract bridge parameters from this description. Return a JSON object with exactly these fields:
+- bridge_type (string): one of road_bridge | pedestrian_bridge | culvert
+- structure_type (string): one of steel_beam | concrete_slab | concrete_girder | steel_truss | arch | box_culvert
+- span_m (float): bridge span in metres
+- deck_width_m (float): deck width in metres
+- clearance_m (float): vertical clearance in metres
+
+Current parameters (baseline for unspecified values):
+{json.dumps(current)}
+
+Description: "{body.text}"
+
+Return only valid JSON, no explanation."""
+
+    try:
+        raw = await provider.generate(prompt=prompt, max_tokens=400)
+        content = raw.content.strip()
+        if content.startswith("```"):
+            content = content.split("```")[1]
+            if content.startswith("json"):
+                content = content[4:]
+        data = json.loads(content.strip())
+
+        return InfraModelParseResponse(
+            asset_type=body.asset_type,
+            params=data,
+        )
+    except Exception as exc:
+        raise HTTPException(
+            status_code=status.HTTP_502_BAD_GATEWAY,
+            detail=f"Infrastructure model parsing failed: {exc}",
+        ) from exc

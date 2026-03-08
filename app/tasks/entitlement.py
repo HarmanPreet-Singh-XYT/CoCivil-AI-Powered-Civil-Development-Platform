@@ -8,13 +8,10 @@ from app.models.entitlement import BuildingPermit, DevelopmentApplication, Entit
 from app.models.simulation import LayoutRun, Massing
 from app.services.precedent import normalize_application_type, score_precedent_match
 from app.services.thin_slice_runtime import resolve_project_context
-from app.worker import celery_app
-
 logger = structlog.get_logger()
 
 
-@celery_app.task(bind=True, name="app.tasks.entitlement.run_entitlement_check")
-def run_entitlement_check(self, job_id: str, scenario_id: str, params: dict | None = None):
+def run_entitlement_check(job_id: str, scenario_id: str, params: dict | None = None):
     """Run entitlement / compliance check for a scenario.
 
     TODO: Implement entitlement engine:
@@ -97,8 +94,7 @@ def run_entitlement_check(self, job_id: str, scenario_id: str, params: dict | No
         db.close()
 
 
-@celery_app.task(bind=True, name="app.tasks.entitlement.run_precedent_search")
-def run_precedent_search(self, job_id: str, scenario_id: str, params: dict | None = None):
+def run_precedent_search(job_id: str, scenario_id: str, params: dict | None = None):
     """Search for comparable precedent development applications.
 
     TODO: Implement precedent retrieval:

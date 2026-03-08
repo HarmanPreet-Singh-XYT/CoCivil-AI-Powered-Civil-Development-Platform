@@ -13,8 +13,6 @@ restartPolicyType = "on_failure"
 # DATABASE_URL        - Postgres connection string (Railway injects from Postgres plugin)
 # DATABASE_URL_SYNC   - Sync Postgres URL for Alembic (psycopg2 driver)
 # REDIS_URL           - Redis connection string (Railway injects from Redis plugin)
-# CELERY_BROKER_URL   - Redis URL for Celery broker  (e.g. $REDIS_URL)
-# CELERY_RESULT_BACKEND - Redis URL for Celery results
 # JWT_SECRET_KEY      - Long random string for JWT signing
 # AI_PROVIDER         - "claude" or "openai"
 # AI_API_KEY          - Anthropic or OpenAI API key

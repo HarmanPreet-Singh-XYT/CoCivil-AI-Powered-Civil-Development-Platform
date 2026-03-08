@@ -9,6 +9,19 @@ import {
   makeCircularFootprint,
   subdivideFootprintIntoUnits,
 } from '../lib/buildingGeometry.js';
+import {
+  alignmentToLocal,
+  generatePipeSegment,
+  generateManhole,
+  generateFitting,
+} from '../lib/infrastructureGeometry.js';
+import {
+  generateBridgeDeck,
+  generateGirder,
+  generateAbutment,
+  generatePier,
+  generateBarrier,
+} from '../lib/bridgeGeometry.js';
 import BlueprintOverlay from './BlueprintOverlay.jsx';
 import FloorPlanView from './FloorPlanView.jsx';
 import FloorPlanEditor from './floorplan/FloorPlanEditor.jsx';
@@ -76,6 +89,214 @@ function scaleFootprint(footprint, coverage) {
   return footprint.map(([x, z]) => [x * coverage, z * coverage]);
 }
 
+// ─── Detail materials ───────────────────────────────────────────────────────────
+
+const windowMaterial = new THREE.MeshPhysicalMaterial({
+  color: '#1a3a5a',
+  metalness: 0.9,
+  roughness: 0.05,
+  transmission: 0.3,
+  transparent: true,
+});
+
+const railingMaterial = new THREE.MeshStandardMaterial({
+  color: '#aaccee',
+  transparent: true,
+  opacity: 0.3,
+  metalness: 0.5,
+  roughness: 0.1,
+});
+
+const canopyMaterial = new THREE.MeshStandardMaterial({
+  color: '#2a2a2a',
+  metalness: 0.6,
+  roughness: 0.3,
+});
+
+const edgeMaterial = new THREE.LineBasicMaterial({ color: '#333333' });
+
+// ─── Detail geometry helpers ────────────────────────────────────────────────────
+
+function getFacesFromFootprint(pts) {
+  const faces = [];
+  for (let i = 0; i < pts.length; i++) {
+    const a = pts[i];
+    const b = pts[(i + 1) % pts.length];
+    faces.push({ start: a, end: b });
+  }
+  return faces;
+}
+
+function generateWindowsForFace(start, end, floorY, floorH, isStorefront = false) {
+  const dx = end[0] - start[0];
+  const dz = end[1] - start[1];
+  const faceLen = Math.sqrt(dx * dx + dz * dz);
+  if (faceLen < 2) return [];
+
+  const windowW = isStorefront ? 2.0 : 1.2;
+  const windowH = isStorefront ? 2.5 : 1.2;
+  const mullion = 0.6;
+  const spacing = windowW + mullion;
+  const count = Math.max(1, Math.floor((faceLen - mullion) / spacing));
+  const totalSpan = count * spacing - mullion;
+  const offsetStart = (faceLen - totalSpan) / 2;
+
+  const nx = -dz / faceLen;
+  const nz = dx / faceLen;
+
+  const results = [];
+  for (let i = 0; i < count; i++) {
+    const t = (offsetStart + i * spacing + windowW / 2) / faceLen;
+    const cx = start[0] + dx * t + nx * 0.02;
+    const cz = start[1] + dz * t + nz * 0.02;
+    const cy = floorY + (isStorefront ? windowH / 2 + 0.5 : floorH / 2);
+    const angle = Math.atan2(dx, dz);
+
+    results.push({
+      type: 'window',
+      position: [cx, cy, cz],
+      rotation: [0, angle, 0],
+      size: [windowW, windowH, 0.08],
+    });
+  }
+  return results;
+}
+
+function generateBalcony(start, end, floorY) {
+  const dx = end[0] - start[0];
+  const dz = end[1] - start[1];
+  const faceLen = Math.sqrt(dx * dx + dz * dz);
+  if (faceLen < 3) return [];
+
+  const nx = -dz / faceLen;
+  const nz = dx / faceLen;
+  const depth = 1.2;
+  const mx = (start[0] + end[0]) / 2 + nx * depth / 2;
+  const mz = (start[1] + end[1]) / 2 + nz * depth / 2;
+  const angle = Math.atan2(dx, dz);
+
+  return [
+    {
+      type: 'balcony_slab',
+      position: [mx, floorY + 0.05, mz],
+      rotation: [0, angle, 0],
+      size: [faceLen * 0.8, 0.15, depth],
+    },
+    {
+      type: 'railing',
+      position: [mx + nx * depth / 2, floorY + 0.5, mz + nz * depth / 2],
+      rotation: [0, angle, 0],
+      size: [faceLen * 0.8, 0.9, 0.05],
+    },
+  ];
+}
+
+function generateCanopy(footprintPts, groundFloorTop) {
+  const faces = getFacesFromFootprint(footprintPts);
+  const results = [];
+  for (const { start, end } of faces) {
+    const dx = end[0] - start[0];
+    const dz = end[1] - start[1];
+    const faceLen = Math.sqrt(dx * dx + dz * dz);
+    if (faceLen < 3) continue;
+
+    const nx = -dz / faceLen;
+    const nz = dx / faceLen;
+    const mx = (start[0] + end[0]) / 2 + nx * 0.5;
+    const mz = (start[1] + end[1]) / 2 + nz * 0.5;
+    const angle = Math.atan2(dx, dz);
+
+    results.push({
+      type: 'canopy',
+      position: [mx, groundFloorTop - 0.15, mz],
+      rotation: [0, angle, 0],
+      size: [faceLen * 0.9, 0.1, 1.0],
+    });
+  }
+  return results;
+}
+
+function generateRoofCap(footprintPts, topY) {
+  const shape = makeShapeFromPoints(footprintPts);
+  const geo = new THREE.ExtrudeGeometry(shape, { depth: 0.3, bevelEnabled: false });
+  geo.rotateX(-Math.PI / 2);
+  geo.translate(0, topY, 0);
+  return { geometry: geo, color: '#555555', isRoof: true };
+}
+
+function generateEdges(slabGeo) {
+  return new THREE.EdgesGeometry(slabGeo);
+}
+
+function buildDetails(footprintPts, pieces, opts = {}) {
+  const {
+    skipWindows = false,
+    balconyFloors = null, // array of floor indices that get balconies, or null for none
+    storefrontFloor = -1, // floor index for storefront treatment
+    canopyFloor = -1,     // floor index whose top gets a canopy
+  } = opts;
+
+  const details = [];
+  const faces = getFacesFromFootprint(footprintPts);
+
+  // Edge lines for each floor slab
+  for (const piece of pieces) {
+    details.push({ type: 'edges', geometry: generateEdges(piece.geometry) });
+  }
+
+  if (skipWindows) return details;
+
+  // Track cumulative Y for each piece
+  let y = 0;
+  for (let i = 0; i < pieces.length; i++) {
+    const piece = pieces[i];
+    // Compute floor height from geometry bounding box
+    piece.geometry.computeBoundingBox();
+    const bb = piece.geometry.boundingBox;
+    const floorY = bb.min.y;
+    const floorH = bb.max.y - bb.min.y;
+
+    const isStorefront = i === storefrontFloor;
+
+    // Windows on each face
+    for (const { start, end } of faces) {
+      const wins = generateWindowsForFace(start, end, floorY, floorH, isStorefront);
+      details.push(...wins);
+    }
+
+    // Balconies
+    if (balconyFloors && balconyFloors.includes(i)) {
+      // Pick first two longest faces
+      const sorted = [...faces].sort((a, b) => {
+        const la = Math.hypot(a.end[0] - a.start[0], a.end[1] - a.start[1]);
+        const lb = Math.hypot(b.end[0] - b.start[0], b.end[1] - b.start[1]);
+        return lb - la;
+      });
+      for (let f = 0; f < Math.min(2, sorted.length); f++) {
+        const balc = generateBalcony(sorted[f].start, sorted[f].end, floorY);
+        details.push(...balc);
+      }
+    }
+  }
+
+  // Canopy
+  if (canopyFloor >= 0 && canopyFloor < pieces.length) {
+    pieces[canopyFloor].geometry.computeBoundingBox();
+    const topY = pieces[canopyFloor].geometry.boundingBox.max.y;
+    const canopies = generateCanopy(footprintPts, topY);
+    details.push(...canopies);
+  }
+
+  // Roof cap
+  if (pieces.length > 0) {
+    const last = pieces[pieces.length - 1];
+    last.geometry.computeBoundingBox();
+    details.push(generateRoofCap(footprintPts, last.geometry.boundingBox.max.y));
+  }
+
+  return details;
+}
+
 // ─── Typology builders ──────────────────────────────────────────────────────────
 
 function buildMidrise(footprint, p) {
@@ -91,7 +312,10 @@ function buildMidrise(footprint, p) {
     });
     y += FLOOR_H + FLOOR_GAP;
   }
-  return pieces;
+  const balconyFloors = [];
+  for (let i = 2; i < storeys; i += 2) balconyFloors.push(i);
+  const details = buildDetails(fp, pieces, { balconyFloors });
+  return { pieces, details };
 }
 
 function buildTowerOnPodium(footprint, p) {
@@ -125,7 +349,15 @@ function buildTowerOnPodium(footprint, p) {
     }
   }
 
-  return pieces;
+  // Details: storefront on ground, canopy, balconies on tower floors
+  const balconyFloors = [];
+  for (let i = podiumStoreys + 1; i < pieces.length; i += 3) balconyFloors.push(i);
+  const details = buildDetails(fp, pieces, {
+    storefrontFloor: 0,
+    canopyFloor: 0,
+    balconyFloors,
+  });
+  return { pieces, details };
 }
 
 function buildPointTower(footprint, p) {
@@ -155,7 +387,10 @@ function buildPointTower(footprint, p) {
     });
     y += FLOOR_H + FLOOR_GAP;
   }
-  return pieces;
+  const balconyFloors = [];
+  for (let i = 2; i < totalStoreys; i += 3) balconyFloors.push(i);
+  const details = buildDetails(fp, pieces, { balconyFloors });
+  return { pieces, details };
 }
 
 function buildTownhouse(footprint, p) {
@@ -184,7 +419,18 @@ function buildTownhouse(footprint, p) {
       y += FLOOR_H + FLOOR_GAP;
     }
   }
-  return pieces;
+  // Townhouse: edges + roof cap only, no windows/balconies
+  const details = [];
+  for (const piece of pieces) {
+    details.push({ type: 'edges', geometry: generateEdges(piece.geometry) });
+  }
+  if (pieces.length > 0) {
+    const last = pieces[pieces.length - 1];
+    last.geometry.computeBoundingBox();
+    const fpAll = scaleFootprint(footprint, p.footprint_coverage ?? 0.55);
+    details.push(generateRoofCap(fpAll, last.geometry.boundingBox.max.y));
+  }
+  return { pieces, details };
 }
 
 function buildSlab(footprint, p) {
@@ -200,7 +446,9 @@ function buildSlab(footprint, p) {
     });
     y += FLOOR_H + FLOOR_GAP;
   }
-  return pieces;
+  // Slab: windows + edges + roof, no balconies
+  const details = buildDetails(fp, pieces);
+  return { pieces, details };
 }
 
 function buildMixedUseMidrise(footprint, p) {
@@ -218,7 +466,14 @@ function buildMixedUseMidrise(footprint, p) {
     });
     y += h + FLOOR_GAP;
   }
-  return pieces;
+  const balconyFloors = [];
+  for (let i = 2; i < storeys; i += 2) balconyFloors.push(i);
+  const details = buildDetails(fp, pieces, {
+    storefrontFloor: 0,
+    canopyFloor: 0,
+    balconyFloors,
+  });
+  return { pieces, details };
 }
 
 function buildRealBuilding(footprint, p) {
@@ -226,8 +481,207 @@ function buildRealBuilding(footprint, p) {
   const totalH = p.height_m || 35;
   const geo = new THREE.ExtrudeGeometry(shape, { depth: totalH, bevelEnabled: false });
   geo.rotateX(-Math.PI / 2);
-  return [{ geometry: geo, color: COLORS.tower }];
+  const pieces = [{ geometry: geo, color: COLORS.tower }];
+  const details = buildDetails(footprint, pieces, { skipWindows: true });
+  return { pieces, details };
 }
+
+// ─── Infrastructure colors ──────────────────────────────────────────────────
+const INFRA_COLORS = {
+  water: '#2277bb',
+  sanitary: '#886644',
+  storm: '#44aa66',
+  gas: '#ddaa22',
+  deck: '#888888',
+  girder: '#666666',
+  abutment: '#aa9977',
+  pier: '#999999',
+  barrier: '#bbbbbb',
+};
+
+// ─── Infrastructure builders ────────────────────────────────────────────────
+
+function buildPipelineNetwork(alignment, params) {
+  const localPts = alignmentToLocal(alignment);
+  if (localPts.length < 2) return { pieces: [], details: [] };
+
+  const pieces = [];
+  const details = [];
+  const pipeType = params?.pipe_type || 'water';
+  const diameter = params?.diameter_mm || 300;
+  const color = INFRA_COLORS[pipeType] || INFRA_COLORS.water;
+  const manholeSpacing = params?.manhole_spacing_m || 120;
+
+  // Generate pipe segments between consecutive alignment points
+  let accumulatedLength = 0;
+  let lastManholeAt = 0;
+
+  for (let i = 0; i < localPts.length - 1; i++) {
+    const seg = generatePipeSegment(localPts[i], localPts[i + 1], diameter);
+    pieces.push({
+      geometry: seg.geometry,
+      color,
+      position: seg.position,
+      quaternion: seg.quaternion,
+      type: 'pipe',
+    });
+
+    // Place manholes at spacing intervals
+    accumulatedLength += seg.length;
+    if (accumulatedLength - lastManholeAt >= manholeSpacing || i === 0) {
+      const mh = generateManhole(localPts[i], params?.manhole_depth_m || 2.5);
+      pieces.push({
+        geometry: mh.geometry,
+        color: '#444444',
+        position: mh.position,
+        type: 'manhole',
+      });
+      lastManholeAt = accumulatedLength;
+    }
+  }
+
+  // End manhole
+  const lastPt = localPts[localPts.length - 1];
+  const endMH = generateManhole(lastPt, params?.manhole_depth_m || 2.5);
+  pieces.push({
+    geometry: endMH.geometry,
+    color: '#444444',
+    position: endMH.position,
+    type: 'manhole',
+  });
+
+  // Fittings at bends
+  for (let i = 1; i < localPts.length - 1; i++) {
+    const v1 = [localPts[i][0] - localPts[i - 1][0], localPts[i][1] - localPts[i - 1][1], localPts[i][2] - localPts[i - 1][2]];
+    const v2 = [localPts[i + 1][0] - localPts[i][0], localPts[i + 1][1] - localPts[i][1], localPts[i + 1][2] - localPts[i][2]];
+    const dot = v1[0] * v2[0] + v1[1] * v2[1] + v1[2] * v2[2];
+    const mag1 = Math.sqrt(v1[0] ** 2 + v1[1] ** 2 + v1[2] ** 2);
+    const mag2 = Math.sqrt(v2[0] ** 2 + v2[1] ** 2 + v2[2] ** 2);
+    const angle = mag1 > 0 && mag2 > 0 ? Math.acos(Math.min(1, dot / (mag1 * mag2))) : 0;
+
+    if (angle > 0.1) {
+      const fit = generateFitting(localPts[i], 'elbow', [0, 0, 0]);
+      details.push({
+        type: 'fitting',
+        geometry: fit.geometry,
+        position: fit.position,
+        rotation: fit.rotation,
+        color,
+      });
+    }
+  }
+
+  return { pieces, details };
+}
+
+function buildBridge(alignment, params) {
+  const localPts = alignmentToLocal(alignment);
+  const pieces = [];
+  const details = [];
+
+  // Compute total span and direction
+  const first = localPts[0] || [0, 0, 0];
+  const last = localPts[localPts.length - 1] || [20, 0, 0];
+  const span = Math.sqrt(
+    (last[0] - first[0]) ** 2 + (last[1] - first[1]) ** 2 + (last[2] - first[2]) ** 2
+  ) || 20;
+
+  const deckWidth = params?.deck_width_m || 12;
+  const deckDepth = params?.deck_depth_m || 0.3;
+  const girderDepth = params?.girder_depth_m || 1.2;
+  const barrierHeight = params?.barrier_height_m || 1.1;
+  const pierCount = params?.pier_count || Math.max(0, Math.floor(span / 25) - 1);
+  const pierHeight = params?.pier_height_m || 8;
+
+  const midX = (first[0] + last[0]) / 2;
+  const midY = (first[1] + last[1]) / 2;
+  const midZ = (first[2] + last[2]) / 2;
+
+  // Direction angle for rotation
+  const angle = Math.atan2(last[2] - first[2], last[0] - first[0]);
+
+  // Deck
+  const deck = generateBridgeDeck(span, deckWidth, deckDepth);
+  pieces.push({
+    geometry: deck.geometry,
+    color: INFRA_COLORS.deck,
+    position: [midX, midY, midZ],
+    rotation: [0, angle, 0],
+    type: 'deck',
+  });
+
+  // Girders (typically 4-6 across width)
+  const girderCount = params?.girder_count || Math.max(2, Math.round(deckWidth / 2.5));
+  const girderType = params?.girder_type || 'i_beam';
+  for (let g = 0; g < girderCount; g++) {
+    const transOffset = -deckWidth / 2 + (g + 0.5) * (deckWidth / girderCount);
+    const gir = generateGirder(girderType, span, girderDepth, transOffset);
+    pieces.push({
+      geometry: gir.geometry,
+      color: INFRA_COLORS.girder,
+      position: [midX, midY - deckDepth / 2 - girderDepth, midZ + transOffset],
+      rotation: [0, angle, 0],
+      type: 'girder',
+    });
+  }
+
+  // Abutments (at each end)
+  const abutW = deckWidth + 1;
+  const abutH = pierHeight;
+  const abutD = 1.5;
+  const abutStart = generateAbutment('gravity', first, { width: abutW, height: abutH, depth: abutD });
+  pieces.push({
+    geometry: abutStart.geometry,
+    color: INFRA_COLORS.abutment,
+    position: [first[0], first[1] - abutH / 2, first[2]],
+    rotation: [0, angle, 0],
+    type: 'abutment',
+  });
+  const abutEnd = generateAbutment('gravity', last, { width: abutW, height: abutH, depth: abutD });
+  pieces.push({
+    geometry: abutEnd.geometry,
+    color: INFRA_COLORS.abutment,
+    position: [last[0], last[1] - abutH / 2, last[2]],
+    rotation: [0, angle, 0],
+    type: 'abutment',
+  });
+
+  // Piers
+  for (let p = 0; p < pierCount; p++) {
+    const t = (p + 1) / (pierCount + 1);
+    const px = first[0] + (last[0] - first[0]) * t;
+    const py = first[1] + (last[1] - first[1]) * t;
+    const pz = first[2] + (last[2] - first[2]) * t;
+    const pier = generatePier(pierHeight, deckWidth * 0.6);
+    pieces.push({
+      geometry: pier.geometry,
+      color: INFRA_COLORS.pier,
+      position: [px, py - pierHeight / 2, pz],
+      rotation: [0, angle, 0],
+      type: 'pier',
+    });
+  }
+
+  // Barriers (both sides)
+  const bar = generateBarrier(span, barrierHeight, params?.barrier_type || 'jersey');
+  for (const side of [-1, 1]) {
+    const transOffset = side * (deckWidth / 2);
+    pieces.push({
+      geometry: bar.geometry.clone(),
+      color: INFRA_COLORS.barrier,
+      position: [midX, midY + deckDepth / 2 + barrierHeight / 2, midZ + transOffset],
+      rotation: [0, angle, 0],
+      type: 'barrier',
+    });
+  }
+
+  return { pieces, details };
+}
+
+export const INFRASTRUCTURE_BUILDERS = {
+  pipeline: buildPipelineNetwork,
+  bridge: buildBridge,
+};
 
 const TYPOLOGY_BUILDERS = {
   midrise: buildMidrise,
@@ -244,13 +698,18 @@ const TYPOLOGY_BUILDERS = {
 function BuildingMesh({ parcelGeoJSON, params }) {
   const p = params || DEFAULT_PARAMS;
 
-  const pieces = useMemo(() => {
+  const buildResult = useMemo(() => {
     const footprint = extractFootprint(parcelGeoJSON);
     const isRealBuilding = p.typology === 'real_building' || (p.footprint_coverage ?? 0) >= 1.0;
     const typology = isRealBuilding ? 'real_building' : (p.typology || 'midrise');
     const builder = TYPOLOGY_BUILDERS[typology] || TYPOLOGY_BUILDERS.midrise;
-    return builder(footprint, p);
+    const result = builder(footprint, p);
+    // Backward compat: if builder returns an array, wrap it
+    if (Array.isArray(result)) return { pieces: result, details: [] };
+    return result;
   }, [parcelGeoJSON, p]);
+
+  const { pieces, details } = buildResult;
 
   return (
     <group>
@@ -259,6 +718,61 @@ function BuildingMesh({ parcelGeoJSON, params }) {
           <meshStandardMaterial color={piece.color} roughness={0.6} metalness={0.1} />
         </mesh>
       ))}
+      {details.map((d, i) => {
+        if (d.type === 'edges') {
+          return (
+            <lineSegments key={`e${i}`} geometry={d.geometry}>
+              <lineBasicMaterial color="#333333" />
+            </lineSegments>
+          );
+        }
+        if (d.type === 'window') {
+          return (
+            <mesh key={`w${i}`} position={d.position} rotation={d.rotation}>
+              <boxGeometry args={d.size} />
+              <meshPhysicalMaterial
+                color="#1a3a5a"
+                metalness={0.9}
+                roughness={0.05}
+                transmission={0.3}
+                transparent
+              />
+            </mesh>
+          );
+        }
+        if (d.type === 'balcony_slab') {
+          return (
+            <mesh key={`bs${i}`} position={d.position} rotation={d.rotation} castShadow>
+              <boxGeometry args={d.size} />
+              <meshStandardMaterial color="#d8c48a" roughness={0.5} metalness={0.1} />
+            </mesh>
+          );
+        }
+        if (d.type === 'railing') {
+          return (
+            <mesh key={`r${i}`} position={d.position} rotation={d.rotation}>
+              <boxGeometry args={d.size} />
+              <meshStandardMaterial color="#aaccee" transparent opacity={0.3} metalness={0.5} roughness={0.1} />
+            </mesh>
+          );
+        }
+        if (d.type === 'canopy') {
+          return (
+            <mesh key={`c${i}`} position={d.position} rotation={d.rotation} castShadow>
+              <boxGeometry args={d.size} />
+              <meshStandardMaterial color="#2a2a2a" metalness={0.6} roughness={0.3} />
+            </mesh>
+          );
+        }
+        if (d.isRoof) {
+          return (
+            <mesh key={`rf${i}`} geometry={d.geometry} castShadow>
+              <meshStandardMaterial color={d.color} roughness={0.4} metalness={0.2} />
+            </mesh>
+          );
+        }
+        return null;
+      })}
     </group>
   );
 }
@@ -483,10 +997,19 @@ export default function ModelViewer({
   // Load branches when projectId changes
   useEffect(() => {
     if (!projectId || !isOpen) return;
-    listBranches(projectId).then((data) => {
-      setBranches(data || []);
-      if (data?.length > 0 && !currentBranch) {
-        setCurrentBranch(data[0]);
+    listBranches(projectId).then(async (data) => {
+      if (data?.length > 0) {
+        setBranches(data);
+        if (!currentBranch) setCurrentBranch(data[0]);
+      } else {
+        // Auto-create a "main" branch so commits work immediately
+        try {
+          const branch = await createBranch(projectId, 'main', null);
+          setBranches([branch]);
+          setCurrentBranch(branch);
+        } catch (e) {
+          console.error('Failed to auto-create main branch:', e);
+        }
       }
     }).catch(() => {});
   }, [projectId, isOpen]);
@@ -530,7 +1053,11 @@ export default function ModelViewer({
   // Detect dirty state
   useEffect(() => {
     if (!currentVersion) {
-      setIsDirty(false);
+      // No version yet — treat any existing params/plans as uncommitted
+      const hasContent = modelParams || floorPlans;
+      setIsDirty(!!hasContent);
+      if (modelParams) setUncommittedModelParams(modelParams);
+      if (floorPlans) setUncommittedFloorPlans(floorPlans);
       return;
     }
     const paramsChanged = JSON.stringify(modelParams) !== JSON.stringify(currentVersion.model_params);
@@ -557,6 +1084,7 @@ export default function ModelViewer({
       setUncommittedModelParams(null);
     } catch (err) {
       console.error('Commit failed:', err);
+      alert('Commit failed — please try again.');
     }
   }, [currentBranch, floorPlans, modelParams, parcelId, uncommittedFloorPlans, uncommittedModelParams]);
 

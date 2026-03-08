@@ -15,7 +15,8 @@ class WallSegment:
     start: tuple[float, float]
     end: tuple[float, float]
     thickness_m: float = 0.2
-    type: str = "interior"
+    type: str = "interior"  # "interior", "exterior", "structural"
+    load_bearing: str = "unknown"  # "yes", "no", "unknown"
 
 
 @dataclass
@@ -27,19 +28,30 @@ class Room:
 
 
 @dataclass
+class Column:
+    position: tuple[float, float]  # centre
+    size_m: float = 0.4  # square column side length
+
+
+@dataclass
 class Opening:
     position: tuple[float, float]
     width_m: float
     type: str  # "door" or "window"
+    sill_height_m: float | None = None
+    head_height_m: float | None = None
+    swing_direction: str | None = None  # "inward", "outward", "sliding"
 
 
 @dataclass
 class FloorPlan:
     floor_number: int
     floor_label: str
+    ceiling_height_m: float | None = None
     walls: list[WallSegment] = field(default_factory=list)
     rooms: list[Room] = field(default_factory=list)
     openings: list[Opening] = field(default_factory=list)
+    columns: list[Column] = field(default_factory=list)
 
 
 def _polygon_area(pts: list[tuple[float, float]]) -> float:
@@ -112,9 +124,54 @@ def _is_wall_layer(layer_name: str) -> bool:
     return any(kw in lower for kw in ("wall", "a-wall", "struc", "partition", "outline"))
 
 
+def _wall_type_from_layer(layer_name: str) -> tuple[str, str]:
+    """Return (wall_type, load_bearing) from layer name."""
+    lower = _strip_xref_prefix(layer_name).lower()
+    if any(kw in lower for kw in ("extr", "exterior", "outline")):
+        return "exterior", "yes"
+    if any(kw in lower for kw in ("strc", "struc", "structural", "party")):
+        return "structural", "yes"
+    if any(kw in lower for kw in ("part", "partition")):
+        return "interior", "no"
+    return "interior", "unknown"
+
+
 def _is_room_layer(layer_name: str) -> bool:
     lower = _strip_xref_prefix(layer_name).lower()
-    return any(kw in lower for kw in ("room", "area", "space", "hatch", "fill", "zone", "case", "footprint"))
+    return any(kw in lower for kw in ("room", "area", "space", "hatch", "fill", "zone", "case", "footprint", "balcony", "balc", "deck", "terrace"))
+
+
+def _is_balcony_layer(layer_name: str) -> bool:
+    lower = _strip_xref_prefix(layer_name).lower()
+    return any(kw in lower for kw in ("balcony", "balc", "deck", "terrace"))
+
+
+def _is_column_layer(layer_name: str) -> bool:
+    lower = _strip_xref_prefix(layer_name).lower()
+    return any(kw in lower for kw in ("col", "s-col", "column", "pillar", "pier"))
+
+
+def _is_ceiling_annotation(text: str) -> float | None:
+    """Extract ceiling height from annotation text like 'CLG 4.2m'."""
+    import re
+    m = re.search(r"(?:clg|ceiling|ceil|c/h|ch)[:\s]*(\d+\.?\d*)\s*m?", text, re.IGNORECASE)
+    if m:
+        return float(m.group(1))
+    return None
+
+
+def _get_block_attribs(entity) -> dict[str, str]:
+    """Extract attribute values from an INSERT entity."""
+    attribs = {}
+    try:
+        for att in entity.attribs:
+            tag = att.dxf.tag.upper() if hasattr(att.dxf, "tag") else ""
+            val = att.dxf.text if hasattr(att.dxf, "text") else ""
+            if tag and val:
+                attribs[tag] = val
+    except Exception:
+        pass
+    return attribs
 
 
 def _is_door_window(block_name: str) -> str | None:
@@ -156,6 +213,9 @@ def _centre_coords(
         for o in fp.openings:
             all_x.append(o.position[0])
             all_y.append(o.position[1])
+        for c in fp.columns:
+            all_x.append(c.position[0])
+            all_y.append(c.position[1])
 
     if not all_x:
         return plans, {"min": [0, 0], "max": [0, 0]}
@@ -173,6 +233,8 @@ def _centre_coords(
             r.polygon = [(px - cx, py - cy) for px, py in r.polygon]
         for o in fp.openings:
             o.position = (o.position[0] - cx, o.position[1] - cy)
+        for c in fp.columns:
+            c.position = (c.position[0] - cx, c.position[1] - cy)
 
     bounds = {
         "min": [min_x - cx, min_y - cy],
@@ -195,6 +257,46 @@ def _nearest_room(rooms: list[Room], x: float, y: float) -> Room | None:
             best_dist = d
             best = room
     return best
+
+
+def detect_dxf_type(file_bytes: bytes) -> str:
+    """Scan layer names to classify DXF as 'building' or 'pipeline'.
+
+    Returns 'pipeline' if pipe/manhole/valve layers dominate, else 'building'.
+    """
+    import os
+    import tempfile
+
+    import ezdxf
+
+    with tempfile.NamedTemporaryFile(suffix=".dxf", delete=False) as tmp:
+        tmp.write(file_bytes)
+        tmp_path = tmp.name
+
+    try:
+        doc = ezdxf.readfile(tmp_path)
+    finally:
+        os.unlink(tmp_path)
+
+    pipeline_kws = {"pipe", "water", "sewer", "storm", "main", "force", "trunk",
+                    "lateral", "manhole", "mh", "valve", "vlv", "hydrant", "hyd"}
+    building_kws = {"wall", "a-wall", "struc", "partition", "room", "door",
+                    "window", "floor", "balcony", "column"}
+
+    pipeline_hits = 0
+    building_hits = 0
+    for layer in doc.layers:
+        lower = _strip_xref_prefix(layer.dxf.name).lower()
+        for kw in pipeline_kws:
+            if kw in lower:
+                pipeline_hits += 1
+                break
+        for kw in building_kws:
+            if kw in lower:
+                building_hits += 1
+                break
+
+    return "pipeline" if pipeline_hits > building_hits else "building"
 
 
 def parse_dxf(file_bytes: bytes) -> dict:
@@ -232,12 +334,55 @@ def parse_dxf(file_bytes: bytes) -> dict:
 
     msp = doc.modelspace()
 
-    # Group entities by detected floor
+    # ── Pass 1: Scan for FLOOR label annotations to build Y-band ranges ────
+    import re as _re
+    floor_bands: list[tuple[float, int, str]] = []  # (y_position, floor_num, label)
+    for entity in msp:
+        dxftype = entity.dxftype()
+        if dxftype not in ("TEXT", "MTEXT"):
+            continue
+        layer = entity.dxf.layer if hasattr(entity.dxf, "layer") else ""
+        stripped_layer = _strip_xref_prefix(layer).lower()
+        if "flor" not in stripped_layer and "anno" not in stripped_layer:
+            continue
+        try:
+            insert = entity.dxf.insert
+            text = (entity.dxf.text if dxftype == "TEXT" else entity.text).strip()
+            m = _re.search(r"FLOOR\s+(\d+)", text, _re.IGNORECASE)
+            if m:
+                floor_bands.append((insert.y, int(m.group(1)), text))
+        except Exception:
+            pass
+
+    # Sort bands by Y ascending, compute midpoints for assignment
+    floor_bands.sort(key=lambda b: b[0])
+
+    def _y_to_floor(y: float) -> tuple[int, str]:
+        """Map a Y coordinate to the nearest floor band."""
+        if not floor_bands:
+            return (1, "Floor 1")
+        best_num, best_label = floor_bands[0][1], floor_bands[0][2]
+        best_dist = float("inf")
+        for band_y, fnum, flabel in floor_bands:
+            d = abs(y - band_y)
+            if d < best_dist:
+                best_dist = d
+                best_num = fnum
+                best_label = flabel
+        return (best_num, best_label)
+
+    # ── Pass 2: Process all entities ─────────────────────────────────────
     floor_map: dict[int, FloorPlan] = {}
     labels: list[tuple[float, float, str, int]] = []  # x, y, text, floor_num
 
-    def get_floor(layer: str) -> FloorPlan:
+    def get_floor_from_layer(layer: str) -> FloorPlan:
         num, label = _detect_floor(layer)
+        if num not in floor_map:
+            floor_map[num] = FloorPlan(floor_number=num, floor_label=label)
+        return floor_map[num]
+
+    def get_floor_from_y(y: float) -> FloorPlan:
+        num, label = _y_to_floor(y)
         if num not in floor_map:
             floor_map[num] = FloorPlan(floor_number=num, floor_label=label)
         return floor_map[num]
@@ -245,33 +390,83 @@ def parse_dxf(file_bytes: bytes) -> dict:
     for entity in msp:
         layer = entity.dxf.layer if hasattr(entity.dxf, "layer") else ""
         dxftype = entity.dxftype()
-        fp = get_floor(layer)
+
+        # Determine floor: prefer layer-encoded floor, fallback to Y-position
+        layer_floor_num, _ = _detect_floor(layer)
+        has_floor_in_layer = layer_floor_num != 1 or any(
+            kw in layer.lower() for kw in ("floor", "flr", "level", "lvl", "f1", "l1")
+        )
+
+        def _get_fp_for_y(y_coord: float) -> FloorPlan:
+            if has_floor_in_layer or not floor_bands:
+                return get_floor_from_layer(layer)
+            return get_floor_from_y(y_coord)
+
+        # Get a representative Y for this entity
+        try:
+            if dxftype == "LINE":
+                rep_y = (entity.dxf.start.y + entity.dxf.end.y) / 2
+            elif dxftype == "LWPOLYLINE":
+                pts = _get_polyline_points(entity)
+                rep_y = sum(p[1] for p in pts) / len(pts) if pts else 0
+            elif dxftype == "INSERT":
+                rep_y = entity.dxf.insert.y
+            elif dxftype in ("TEXT", "MTEXT"):
+                rep_y = entity.dxf.insert.y
+            elif dxftype == "HATCH":
+                rep_y = 0
+                for path in entity.paths:
+                    if hasattr(path, "vertices") and path.vertices:
+                        rep_y = sum(v[1] for v in path.vertices) / len(path.vertices)
+                        break
+            else:
+                rep_y = 0
+        except Exception:
+            rep_y = 0
+
+        fp = _get_fp_for_y(rep_y)
 
         # Walls — LINE entities on wall layers
         if dxftype == "LINE" and _is_wall_layer(layer):
             start = entity.dxf.start
             end = entity.dxf.end
+            wtype, lb = _wall_type_from_layer(layer)
             fp.walls.append(WallSegment(
                 start=(start.x, start.y),
                 end=(end.x, end.y),
-                type="exterior" if "ext" in layer.lower() else "interior",
+                type=wtype,
+                load_bearing=lb,
             ))
 
         # Walls — LWPOLYLINE on wall layers
         elif dxftype == "LWPOLYLINE" and _is_wall_layer(layer):
             pts = _get_polyline_points(entity)
+            wtype, lb = _wall_type_from_layer(layer)
             for i in range(len(pts) - 1):
                 fp.walls.append(WallSegment(
                     start=pts[i],
                     end=pts[i + 1],
-                    type="exterior" if "ext" in layer.lower() else "interior",
+                    type=wtype,
+                    load_bearing=lb,
                 ))
             if entity.closed and len(pts) > 2:
                 fp.walls.append(WallSegment(
                     start=pts[-1],
                     end=pts[0],
-                    type="exterior" if "ext" in layer.lower() else "interior",
+                    type=wtype,
+                    load_bearing=lb,
                 ))
+
+        # Columns — closed LWPOLYLINE on column layers
+        elif dxftype == "LWPOLYLINE" and _is_column_layer(layer):
+            pts = _get_polyline_points(entity)
+            if len(pts) >= 3:
+                cx = sum(p[0] for p in pts) / len(pts)
+                cy = sum(p[1] for p in pts) / len(pts)
+                # Estimate size from bounding box
+                xs = [p[0] for p in pts]
+                size = max(xs) - min(xs) if xs else 0.4
+                fp.columns.append(Column(position=(cx, cy), size_m=round(size, 2)))
 
         # Rooms — closed LWPOLYLINE on room layers
         elif dxftype == "LWPOLYLINE" and _is_room_layer(layer):
@@ -305,14 +500,19 @@ def parse_dxf(file_bytes: bytes) -> dict:
             except Exception:
                 pass
 
-        # Text labels
+        # Text labels (room names, ceiling heights, floor labels)
         elif dxftype in ("TEXT", "MTEXT"):
             try:
                 insert = entity.dxf.insert
                 text = entity.dxf.text if dxftype == "TEXT" else entity.text
                 if text and text.strip():
-                    floor_num = _detect_floor(layer)[0]
-                    labels.append((insert.x, insert.y, text.strip(), floor_num))
+                    clean = text.strip()
+                    # Check for ceiling height annotation
+                    clg = _is_ceiling_annotation(clean)
+                    if clg is not None:
+                        fp.ceiling_height_m = clg
+                    else:
+                        labels.append((insert.x, insert.y, clean, fp.floor_number))
             except Exception:
                 pass
 
@@ -322,13 +522,41 @@ def parse_dxf(file_bytes: bytes) -> dict:
             opening_type = _is_door_window(block_name)
             if opening_type:
                 insert = entity.dxf.insert
-                # Estimate width from block scale
-                sx = getattr(entity.dxf, "xscale", 1.0)
-                width = abs(sx) if abs(sx) > 0.1 else 0.9
+                attribs = _get_block_attribs(entity)
+                # Width: prefer attribute, fallback to block scale
+                width_str = attribs.get("WIDTH_M", "")
+                if width_str:
+                    try:
+                        width = float(width_str)
+                    except ValueError:
+                        sx = getattr(entity.dxf, "xscale", 1.0)
+                        width = abs(sx) if abs(sx) > 0.1 else 0.9
+                else:
+                    sx = getattr(entity.dxf, "xscale", 1.0)
+                    width = abs(sx) if abs(sx) > 0.1 else 0.9
+                # Sill & head heights from attributes
+                sill_h = None
+                head_h = None
+                swing = None
+                if "SILL_HEIGHT_M" in attribs:
+                    try:
+                        sill_h = float(attribs["SILL_HEIGHT_M"])
+                    except ValueError:
+                        pass
+                if "HEAD_HEIGHT_M" in attribs:
+                    try:
+                        head_h = float(attribs["HEAD_HEIGHT_M"])
+                    except ValueError:
+                        pass
+                if "SWING" in attribs:
+                    swing = attribs["SWING"].lower()
                 fp.openings.append(Opening(
                     position=(insert.x, insert.y),
                     width_m=round(width, 2),
                     type=opening_type,
+                    sill_height_m=sill_h,
+                    head_height_m=head_h,
+                    swing_direction=swing,
                 ))
 
     # If no floors detected, create a default floor 1
@@ -362,11 +590,15 @@ def parse_dxf(file_bytes: bytes) -> dict:
 
     # Serialize to dict
     def _serialize_plan(fp: FloorPlan) -> dict:
-        return {
+        result = {
             "floor_number": fp.floor_number,
             "floor_label": fp.floor_label,
             "walls": [
-                {"start": list(w.start), "end": list(w.end), "thickness_m": w.thickness_m, "type": w.type}
+                {
+                    "start": list(w.start), "end": list(w.end),
+                    "thickness_m": w.thickness_m, "type": w.type,
+                    "load_bearing": w.load_bearing,
+                }
                 for w in fp.walls
             ],
             "rooms": [
@@ -374,10 +606,23 @@ def parse_dxf(file_bytes: bytes) -> dict:
                 for r in fp.rooms
             ],
             "openings": [
-                {"position": list(o.position), "width_m": o.width_m, "type": o.type}
+                {
+                    "position": list(o.position), "width_m": o.width_m, "type": o.type,
+                    **({"sill_height_m": o.sill_height_m} if o.sill_height_m is not None else {}),
+                    **({"head_height_m": o.head_height_m} if o.head_height_m is not None else {}),
+                    **({"swing_direction": o.swing_direction} if o.swing_direction else {}),
+                }
                 for o in fp.openings
             ],
         }
+        if fp.ceiling_height_m is not None:
+            result["ceiling_height_m"] = fp.ceiling_height_m
+        if fp.columns:
+            result["columns"] = [
+                {"position": list(c.position), "size_m": c.size_m}
+                for c in fp.columns
+            ]
+        return result
 
     return {
         "floor_plans": [_serialize_plan(fp) for fp in plans],

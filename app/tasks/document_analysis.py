@@ -1,14 +1,12 @@
-"""Celery task for document upload analysis pipeline."""
+"""Task for document upload analysis pipeline."""
 
 import asyncio
 import uuid
 
 import structlog
-from botocore.exceptions import BotoCoreError, ClientError
 
 from app.database import get_sync_db
 from app.models.upload import DocumentPage, UploadedDocument
-from app.worker import celery_app
 
 logger = structlog.get_logger()
 
@@ -21,15 +19,7 @@ def _update_status(db, doc, status, error=None):
     db.refresh(doc)
 
 
-@celery_app.task(
-    bind=True,
-    name="app.tasks.document_analysis.analyze_document",
-    autoretry_for=(BotoCoreError, ClientError, ConnectionError, TimeoutError),
-    retry_backoff=True,
-    retry_jitter=True,
-    retry_kwargs={"max_retries": 3},
-)
-def analyze_document(self, document_id: str):
+def analyze_document(document_id: str):
     """Process an uploaded document: convert PDF pages, run AI extraction and compliance review.
 
     Pipeline:

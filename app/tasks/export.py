@@ -4,20 +4,11 @@ import uuid
 from app.database import get_sync_db
 from app.models.export import ExportJob
 from app.services.governance import evaluate_export_controls
-from app.worker import celery_app
 
 logger = structlog.get_logger()
 
 
-@celery_app.task(
-    bind=True,
-    name="app.tasks.export.run_export",
-    autoretry_for=(ConnectionError, TimeoutError),
-    retry_backoff=True,
-    retry_jitter=True,
-    retry_kwargs={"max_retries": 3},
-)
-def run_export(self, job_id: str, project_id: str, params: dict | None = None):
+def run_export(job_id: str, project_id: str, params: dict | None = None):
     """Generate an export package (PDF, CSV, spreadsheet, 3D).
 
     TODO: Implement export generation:

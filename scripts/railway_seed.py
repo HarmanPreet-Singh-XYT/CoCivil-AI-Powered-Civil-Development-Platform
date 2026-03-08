@@ -28,11 +28,11 @@ BBOX_NORTH = 43.72
 # resource_name_substring is matched case-insensitively against CKAN resource names.
 # For packages with a single relevant resource, use None to grab the first geojson/json.
 DOWNLOADS = [
-    ("property-boundaries", None, "property-boundaries-4326.geojson"),
+    ("property-boundaries", "property boundaries - 4326.geojson", "property-boundaries-4326.geojson"),
     ("zoning-by-law", "zoning area - 4326.geojson", "zoning-area-4326.geojson"),
     ("zoning-by-law", "zoning height overlay - 4326.geojson", "zoning-height-overlay-4326.geojson"),
     ("zoning-by-law", "zoning building setback overlay - 4326.geojson", "zoning-building-setback-overlay-4326.geojson"),
-    ("development-applications", None, "development-applications.json"),
+    ("development-applications", "development applications.json", "development-applications.json"),
 ]
 
 

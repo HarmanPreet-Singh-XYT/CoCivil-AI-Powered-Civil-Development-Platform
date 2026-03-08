@@ -1,4 +1,5 @@
 import logging
+import threading
 import uuid
 
 import httpx
@@ -63,7 +64,11 @@ async def generate_plan(
     await db.refresh(plan)
     await db.commit()
 
-    run_plan_generation.delay(str(plan.id), body.query, body.auto_run, body.generate_subset)
+    threading.Thread(
+        target=run_plan_generation,
+        args=(str(plan.id), body.query, body.auto_run, body.generate_subset),
+        daemon=True,
+    ).start()
 
     return JobAccepted(
         job_id=plan.id,
@@ -157,7 +162,11 @@ async def clarify_plan(
     await db.commit()
 
     # Resume pipeline
-    run_plan_generation.delay(str(plan.id), plan.original_query, True)
+    threading.Thread(
+        target=run_plan_generation,
+        args=(str(plan.id), plan.original_query, True),
+        daemon=True,
+    ).start()
 
     return plan
 

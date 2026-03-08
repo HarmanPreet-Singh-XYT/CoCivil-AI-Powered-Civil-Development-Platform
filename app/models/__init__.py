@@ -10,6 +10,7 @@ from app.models.entitlement import (
     RationaleExtract,
 )
 from app.models.export import AuditEvent, ExportJob
+from app.models.infrastructure import BridgeAsset, PipelineAsset
 from app.models.finance import FinancialAssumptionSet, FinancialRun, MarketComparable
 from app.models.geospatial import (
     Jurisdiction,
@@ -64,4 +65,5 @@ __all__ = [
     "RefreshSchedule",
     "DevelopmentPlan", "SubmissionDocument",
     "UploadedDocument", "DocumentPage",
+    "PipelineAsset", "BridgeAsset",
 ]

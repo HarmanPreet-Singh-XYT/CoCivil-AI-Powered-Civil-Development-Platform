@@ -1,7 +1,7 @@
 # ApplicationAI Platform — Full Codebase Index
 
 > **Auto-maintained**: This file is updated automatically after any file edit or creation. See `.claude/CLAUDE.md` for update rules.
-> **Last updated**: 2026-03-08 | **PRD**: [`.claude/docs/PRD.md`](.claude/docs/PRD.md)
+> **Last updated**: 2026-03-08 (water pipeline DXF support: parser, auto-detect, 3D viewer, sample generator) | **PRD**: [`.claude/docs/PRD.md`](.claude/docs/PRD.md)
 
 ---
 
@@ -109,7 +109,7 @@ finance → entitlement → precedent_search → document_generation
 | `Organization` | slug, settings (JSON) |
 | `User` | email, password_hash, is_active |
 | `WorkspaceMember` | org → user link, role (owner/editor/viewer) |
-| `Project` | name, org, creator |
+| `Project` | name, org, creator, asset_type (building/pipeline/bridge) |
 | `ProjectShare` | per-user/project permissions |
 | `ScenarioRun` | modeling run; input_hash for dedup; pipeline_status; snapshot_manifests |
 | `AnalysisSnapshotManifest` | links scenario to 5 data snapshots (parcel/policy/overlay/precedent/market) |
@@ -194,6 +194,12 @@ finance → entitlement → precedent_search → document_generation
 |-------|-----------|
 | `DesignBranch` | project_id, organization_id, name, created_by; has many DesignVersions |
 | `DesignVersion` | branch_id, parent_version_id, version_number, floor_plans (JSON), model_params (JSON), compliance_status, compliance_details, variance_items, blocking_issues, message, change_summary |
+
+#### `app/models/infrastructure.py`
+| Model | Key Fields |
+|-------|-----------|
+| `PipelineAsset` | jurisdiction_id, source_snapshot_id, asset_id, pipe_type (water_main/sanitary_sewer/storm_sewer/gas_line), material, diameter_mm, install_year, depth_m, slope_pct, geom (LineString 4326), attributes_json |
+| `BridgeAsset` | jurisdiction_id, source_snapshot_id, asset_id, bridge_type (road_bridge/pedestrian_bridge/culvert/overpass), structure_type, span_m, deck_width_m, clearance_m, year_built, condition_rating, road_name, crossing_name, geom (Point 4326), geom_line (LineString 4326), attributes_json |
 
 #### `app/models/upload.py`
 | Model | Key Fields |
@@ -319,7 +325,19 @@ finance → entitlement → precedent_search → document_generation
 |--------|-------|---------|
 | POST | `/api/v1/admin/ingest/building-permits` | Trigger permit ingestion from CKAN |
 | POST | `/api/v1/admin/ingest/coa-applications` | Trigger COA app ingestion from CKAN |
+| POST | `/api/v1/admin/ingest/water-mains` | Trigger water main ingestion from CKAN |
+| POST | `/api/v1/admin/ingest/sanitary-sewers` | Trigger sanitary sewer ingestion from CKAN |
+| POST | `/api/v1/admin/ingest/storm-sewers` | Trigger storm sewer ingestion from CKAN |
+| POST | `/api/v1/admin/ingest/bridges` | Trigger bridge inventory ingestion |
 | GET | `/api/v1/admin/ingest/status` | Counts + last job status |
+
+#### Infrastructure — `app/routers/infrastructure.py`
+| Method | Route | Purpose |
+|--------|-------|---------|
+| GET | `/api/v1/infrastructure/pipelines/nearby` | Find pipeline assets within radius of lat/lng |
+| GET | `/api/v1/infrastructure/bridges/nearby` | Find bridge assets within radius of lat/lng |
+| POST | `/api/v1/infrastructure/compliance/pipeline` | Deterministic pipeline compliance check |
+| POST | `/api/v1/infrastructure/compliance/bridge` | Deterministic bridge compliance check |
 
 ---
 
@@ -329,6 +347,8 @@ finance → entitlement → precedent_search → document_generation
 |------|---------|
 | `app/services/design_version_service.py` | Design version control: create/list/delete branches, commit versions with auto-compliance check against parcel zoning + OBC interior checks, change summary generation |
 | `app/services/compliance_engine.py` | **Deterministic, no AI.** Rule-by-rule compliance matrix (lot coverage, FSI, height, setbacks, parking, amenity space). O.Reg 462/24 (45% lot coverage for ≤3 unit multiplex), Bill 185 (zero parking for ≤10 unit residential). Returns `ComplianceResult` with variances needed. |
+| `app/services/infrastructure_compliance.py` | **Deterministic, no AI.** Pipeline compliance: min diameter, cover depth, slope (Manning's), velocity, manhole spacing, material suitability, water main separation. Bridge compliance: deck width, clearance, barrier height, span range, structural depth (L/D ratio), culvert cover. Reuses `ComplianceRule`/`ComplianceResult` from compliance_engine. |
+| `app/services/infrastructure_ingestion.py` | CKAN ingestion for infrastructure: water mains, sanitary sewers, storm sewers (Toronto Open Data), bridge inventory (MTO/Ontario). Follows ckan_ingestion.py patterns. |
 | `app/services/interior_compliance.py` | **Deterministic, no AI.** OBC Part 9 interior compliance: bedroom area/dimension/egress, hallway width, door width, ceiling height, fire travel, ventilation warnings, load-bearing wall detection, room enclosure check. Computes area from polygon fallback. Spatial opening-to-room linkage via wall geometry. Returns `InteriorComplianceResult` with `description` field per rule. |
 | `app/services/zoning_service.py` | `ZoningAnalysis` builder; normalize zone codes; extract params from map labels |
 | `app/services/zoning_parser.py` | Parse zone strings like `RD(f12.0; a370; d0.6)` into structured standards |
@@ -339,7 +359,8 @@ finance → entitlement → precedent_search → document_generation
 | `app/services/access_control.py` | Org ownership checks for all resource types |
 | `app/services/idempotency.py` | Cache job responses by Idempotency-Key header (Redis) |
 | `app/services/storage.py` | S3/MinIO: upload_file, generate_presigned_url, ensure_bucket_exists |
-| `app/services/dxf_parser.py` | DXF floor plan parsing using ezdxf; extracts walls (with load_bearing/structural type), rooms, doors/windows (with sill_height_m, head_height_m, swing_direction from block attributes), columns, ceiling heights (from CLG annotations), balcony polygons; Y-band floor detection from FLOOR label annotations; handles xref-prefixed layers; outputs centred metre coordinates |
+| `app/services/dxf_parser.py` | DXF floor plan parsing using ezdxf; extracts walls, rooms, doors/windows, columns, ceiling heights; now also exports `detect_dxf_type()` which scans layer names to classify a DXF as `"building"` or `"pipeline"` |
+| `app/services/pipeline_dxf_parser.py` | **NEW** — Civil pipeline DXF parser; detects PIPE/WATER/SEWER/STORM/MAIN/MANHOLE/VALVE/HYDRANT layers; extracts `PipeSegment`, `ManholeNode`, `ValveNode`, `HydrantNode`, `FittingNode`; reads block attributes for diameter/material/depth/invert; outputs centred metre coordinates with summary stats |
 | `app/services/document_processor.py` | PDF parsing, page extraction, OCR, DXF file classification, PDF vector geometry extraction |
 | `app/services/document_analyzer.py` | AI-powered analysis: extract dims, unit mix, compliance issues from docs |
 | `app/services/thin_slice_runtime.py` | `ensure_reference_data()` — seed massing templates, unit types, assumptions |
@@ -372,6 +393,7 @@ finance → entitlement → precedent_search → document_generation
 | `app/tasks/document_analysis.py` | `analyze_document` | DXF floor plan parsing, PDF page extraction + vector geometry, AI analysis; populate extracted_data, compliance_findings, floor_plan_data |
 | `app/tasks/ingestion.py` | `ingest_building_permits_task` | Fetch + upsert permits from Toronto CKAN |
 | `app/tasks/ingestion.py` | `ingest_coa_applications_task` | Fetch + upsert COA apps from CKAN |
+| `app/tasks/infrastructure_ingestion.py` | `ingest_water_mains_task`, `ingest_sanitary_sewers_task`, `ingest_storm_sewers_task`, `ingest_bridges_task` | Infrastructure data ingestion from CKAN/MTO |
 | `app/tasks/export.py` | Export task | Apply governance controls; generate signed URL |
 
 ---
@@ -383,6 +405,8 @@ finance → entitlement → precedent_search → document_generation
 | `app/data/toronto_zoning.py` | `ZONE_STANDARDS` dict — hardcoded By-law 569-2013 standards: R, RM, RA, CR, CL, DL, IH, IO, IE, IL. Each zone: permitted_uses, max_height, max_storeys, setbacks, lot_coverage, FSI, bylaw_section. Also: `AMENITY_SPACE`, `BICYCLE_PARKING` requirements. **Deterministic, no AI.** |
 | `app/data/ontario_policy.py` | `ONTARIO_POLICY_HIERARCHY`, `TORONTO_OP_DESIGNATIONS`, `TORONTO_ZONING_KEY_RULES`, `MINOR_VARIANCE_FOUR_TESTS`, `OREG_462_24`, `RECENT_LEGISLATION` (Bills 23/97/109/185/60). Embedded in AI system prompts as grounding context. |
 | `app/data/obc_interior_standards.py` | `OBC_INTERIOR_RULES` dict — OBC Part 9 interior standards: bedroom area/dimension, egress window, hallway width, door width, ceiling height, fire travel, fire access. `OBC_SECTIONS` section references. `OBC_DESCRIPTIONS` human-readable policy descriptions. **Deterministic, no AI.** |
+| `app/data/civil_standards.py` | `PIPE_MATERIALS`, `PIPE_TYPE_STANDARDS`, `SANITARY_MIN_SLOPE`, `MANHOLE_STANDARDS`, `BRIDGE_TYPE_STANDARDS`, `BRIDGE_STRUCTURE_TYPES`, `CL_625_LOADING` — hardcoded OPSD/OPSS/CSA S6/MTO civil infrastructure standards. **Deterministic, no AI.** |
+| `app/data/infrastructure_policy.py` | `ONTARIO_INFRASTRUCTURE_HIERARCHY`, `INFRASTRUCTURE_APPROVAL_PROCESS` — policy constants for AI grounding on infrastructure projects (OWRA, EPA, Safe Drinking Water Act, TSSA, CSA S6). |
 
 ---
 
@@ -392,7 +416,8 @@ finance → entitlement → precedent_search → document_generation
 |------|------------|
 | `app/schemas/auth.py` | LoginRequest, RegisterRequest, TokenResponse, UserInfo |
 | `app/schemas/plan.py` | PlanGenerateRequest (generate_subset), PlanGenerateDocumentRequest (extra_context), PlanResponse, PlanListResponse, SubmissionDocumentResponse, PlanSubmissionReadinessResponse, ContractorResult, ContractorRecommendationsResponse |
-| `app/schemas/assistant.py` | AssistantChatRequest, AssistantChatResponse, ProposedAction (doc_types), ModelParseRequest (zone_code, lot_area_m2), ModelParseResponse (unit_width, tower_shape, warnings) |
+| `app/schemas/assistant.py` | AssistantChatRequest, AssistantChatResponse, ProposedAction (doc_types), ModelParseRequest (zone_code, lot_area_m2), ModelParseResponse (unit_width, tower_shape, warnings), InfraModelParseRequest, InfraModelParseResponse, InfraModelUpdate |
+| `app/schemas/infrastructure.py` | PipelineComplianceRequest, BridgeComplianceRequest, PipelineAssetResponse, BridgeAssetResponse — Pydantic schemas for infrastructure endpoints |
 | `app/schemas/geospatial.py` | ParcelResponse, ParcelDetailResponse, ParcelSearchParams, PolicyStackResponse, ParcelOverlaysResponse |
 | `app/schemas/entitlement.py` | EntitlementRunRequest/Response, PrecedentSearchRequest/Response |
 | `app/schemas/simulation.py` | MassingRequest/Response, LayoutRunRequest/Response, UnitTypeReferenceResponse |
@@ -432,13 +457,14 @@ finance → entitlement → precedent_search → document_generation
 | File | Purpose |
 |------|---------|
 | `src/main.jsx` | React 19 mount; Auth0Provider with hardcoded domain/clientId; localstorage token cache |
-| `src/App.jsx` | Root orchestrator; routing via `currentPage` state ('landing'/'dashboard'); auth gate; multi-component layout; floorPlans + projectId state; activePlanId state threaded to PolicyPanel + ChatPanel |
-| `src/api.js` | HTTP wrapper; base `/api/v1`; reads `localStorage['token']` for Bearer auth; all backend endpoints including design version control, getNearbyApplications, generatePlan (with generateSubset), regeneratePlanDocument, downloadPlanDocument, exportPlan |
+| `src/App.jsx` | Root orchestrator; routing via `currentPage` state ('landing'/'dashboard'); auth gate; multi-component layout; floorPlans + pipelineData + projectId state; `handleUploadAnalyzed` routes pipeline DXF uploads to InfrastructureViewer and building DXFs to ModelViewer; assetType state ('building'/'pipeline'/'bridge') for conditional viewer rendering |
+| `src/api.js` | HTTP wrapper; base `/api/v1`; reads `localStorage['token']` for Bearer auth; all backend endpoints including design version control, getNearbyApplications, generatePlan (with generateSubset), regeneratePlanDocument, downloadPlanDocument, exportPlan; infrastructure endpoints: getNearbyPipelines, getNearbyBridges, checkPipelineCompliance, checkBridgeCompliance, parseInfraModel, triggerWaterMainIngestion, triggerSanitarySewerIngestion, triggerStormSewerIngestion, triggerBridgeIngestion |
 
 **App.jsx key state:**
 ```
 currentPage, selectedParcel, isPanelOpen, isSidebarCollapsed,
-activeNav, savedParcels, showHistory, searchHistory (localStorage per user)
+activeNav, savedParcels, showHistory, searchHistory (localStorage per user),
+assetType ('building' | 'pipeline' | 'bridge')
 ```
 
 ---
@@ -464,16 +490,25 @@ activeNav, savedParcels, showHistory, searchHistory (localStorage per user)
 | `src/components/floorplan/panels/WallProperties.jsx` | Wall inspector panel | Load-bearing toggle (Unknown/Yes/No), wall type (Interior/Exterior), thickness slider, delete with load-bearing safety check. |
 | `src/components/BlueprintOverlay.jsx` | Blueprint image overlay | R3F component; loads blueprint page images as textured planes at floor Y offsets; supports per-floor or all-floors display. |
 | `src/components/SearchBar.jsx` | Address search + geocoding | 350ms debounce; Nominatim OSM API scoped to Toronto; 6 suggestions max; Enter/Escape keyboard support |
-| `src/components/Sidebar.jsx` | Left nav panel | 5 nav items: Overview/Finances/Policies/Datasets/Precedents. History panel. Collapsed/expanded state. Resizable via `useResizable` hook. |
-| `src/components/PolicyPanel.jsx` | Right-side 6-tab panel | Tabs: Overview (zoning summary + file upload zone), Policies (accordion), Datasets (overlays), Precedents (live nearby applications with distance/decision), Finances (pro forma estimates, assessed value, market comps with tenure toggle), Documents (gallery with grouped list, preview, regenerate). Massing/Entitlements removed — AI produces these on demand in chat. Resizable via `useResizable` hook. |
+| `src/components/Sidebar.jsx` | Left nav panel | Asset type selector (Buildings/Pipelines/Bridges) at top. Dynamic nav items per asset type: Building (Overview/Finances/Policies/Datasets/Precedents), Pipeline (Overview/Standards/Network/Datasets/Inspections), Bridge (Overview/Standards/Load Analysis/Datasets/Condition). History panel. Collapsed/expanded state. Resizable via `useResizable` hook. |
+| `src/components/PolicyPanel.jsx` | Right-side multi-tab panel | Building tabs: Overview (zoning summary + file upload zone), Policies (accordion), Datasets (overlays), Precedents (live nearby applications with distance/decision), Finances (pro forma estimates, assessed value, market comps with tenure toggle), Documents (gallery with grouped list, preview, regenerate). Infrastructure tabs: Standards (CSA/OPSD/ECA standards by asset type), Network (pipeline network overview), Inspections (CCTV/maintenance records), Load Analysis (CSA S6 bridge loading), Condition (OSIM bridge condition assessment). Resizable via `useResizable` hook. |
 | `src/components/DocumentGallery.jsx` | Document gallery with sidebar + viewer | Grouped doc list (5 categories: Core Submission, Variance & Compliance, Pathway & Process, Appeals & Responses, Community & Readiness). Status dots. Export All button. |
 | `src/components/DocumentViewer.jsx` | Markdown document viewer | ReactMarkdown rendering, safety preamble banner, download (md/html/docx), regenerate button, review status workflow (submit/approve/reject). |
 | `src/components/ContractorCards.jsx` | Horizontal scrollable row of gold-accent contractor recommendation cards (name, rating, phone, website, trade badge) |
-| `src/components/ChatPanel.jsx` | AI assistant + file upload | Chat with backend `/assistant/chat`. Plan generation polling (30 attempts × 3s) with contractor recommendations on completion. Smart doc generation routing: ≤3 docs from existing plan → regenerate endpoint, else → full pipeline. File upload (PDF/img/xlsx/csv, 50MB max). Upload polling (40 attempts × 3s). `parseChatCommand()` regex for special commands. Drag-and-drop. |
+| `src/components/ChatPanel.jsx` | AI assistant + file upload; chat with `/assistant/chat`; plan polling; smart doc routing; file upload + drag-and-drop; upload polling (40 attempts × 3s); **pipeline DXF path**: when analyzed upload has `pipeline_network`, shows pipe count/total length/manhole count instead of building fields; infrastructure command handling |
 | `src/components/LandingPage.jsx` | Marketing homepage | Auth0 login/logout. Typewriter effect (10 dev queries, 45ms/char). MapLibre preview. Hero → Story → Vision → Footer. |
 | `src/components/UserBubble.jsx` | Animated user bubble (bottom-right) | Hover expand (44px→260px, 0.45s). Breathing pulse. User avatar + online dot + sign out. |
 | `src/components/InfrastructureLayerControl.jsx` | Infrastructure data layer toggle panel | Toggleable panel with categorized checkboxes for Roads (reconstruction), Water System (watermains, hydrants, valves, fittings, drinking sources, distribution), and EV Charging layers. Lazy-loads GeoJSON on first toggle, caches data, manages MapLibre sources/layers. Popups on point features. |
 | `src/components/LoginPage.jsx` | Legacy login form | **Unused** — replaced by Auth0. Still in codebase. |
+| `src/components/InfrastructureViewer.jsx` | Full-screen 3D infrastructure viewer; R3F Canvas for pipeline/bridge 3D visualization; view modes: model_3d, plan, profile, cross_section; edit mode; version control bar; **now also handles uploaded `pipelineData` prop**: renders DXF pipe networks with click-to-edit panel for diameter/material/pipe_type/depth and per-manhole depth/elevation editing, stats bar showing total length and segment counts by type |
+| `src/components/infrastructure/PipeNetworkEditor.jsx` | 2D Konva pipe network editor | Tools: select, pipe_run, manhole, fitting, delete, measure. Grid snap + endpoint snap. Auto-manhole placement (OPSD 120m max spacing). Per-segment properties. Flow direction arrows. Undo/redo (50 snapshots). Keyboard shortcuts: V/P/M/F/X. Debounced compliance check. |
+| `src/components/infrastructure/BridgeEditor.jsx` | 2D Konva bridge component editor | Tools: select, deck, girder, abutment, pier, barrier, delete, measure. Component placement by click. Property editing via BridgeProperties panel. Undo/redo (50 snapshots). |
+| `src/components/infrastructure/PipeProperties.jsx` | Pipe segment property panel | Edit pipe type, diameter, material, slope, invert elevation for selected segment |
+| `src/components/infrastructure/BridgeProperties.jsx` | Bridge component property panel | Edit properties by component type: deck (width/depth), girder (type/depth), pier (height/width), barrier (type) |
+| `src/components/infrastructure/InfrastructureCompliancePanel.jsx` | Infrastructure compliance results display | Shows pass/warning/fail rules with status dots and detail text |
+| `src/components/infrastructure/ProfileView.jsx` | Longitudinal profile for pipe networks | Canvas-rendered chainage vs elevation profile with grid, legends, and pipe-type coloring |
+| `src/components/infrastructure/CrossSectionView.jsx` | Transverse cross-section for bridges | Canvas-rendered bridge cross section with deck, girders, barriers, pier, and dimension annotations. Station slider. |
+| `src/components/infrastructure/InfrastructureCatalog.jsx` | Drag-and-drop component catalog | Draggable pipe types, fittings, and bridge components organized by section |
 
 ---
 
@@ -488,10 +523,12 @@ activeNav, savedParcels, showHistory, searchHistory (localStorage per user)
 | File | Purpose |
 |------|---------|
 | `src/lib/parcelState.js` | Parcel shape builders: `buildParcelState()`, `isResolvedParcel()`, `isUnresolvedParcel()`, `formatParcelContext()`, `normalizeZoneCode()` (extracts leading alpha prefix e.g. `"CR 4.0..."` → `"CR"`) |
-| `src/lib/chatCommands.js` | Regex command parser: `PLAN_FROM_UPLOAD_RE`, `RESPONSE_FROM_UPLOAD_RE`, `PLAN_RE`, `EDIT_FLOOR_RE`, `MODEL_RE`, `FLOOR_RE`, `VIEW_MODE_RE`, `COMMIT_RE`, `BRANCH_RE`, `HISTORY_RE` → `{type, query/floor/mode/message/name}` |
+| `src/lib/chatCommands.js` | Regex command parser: `PLAN_FROM_UPLOAD_RE`, `RESPONSE_FROM_UPLOAD_RE`, `PLAN_RE`, `EDIT_FLOOR_RE`, `MODEL_RE`, `FLOOR_RE`, `VIEW_MODE_RE`, `COMMIT_RE`, `BRANCH_RE`, `HISTORY_RE`, `INFRA_MODEL_RE`, `BRIDGE_MODEL_RE` → `{type, query/floor/mode/message/name/diameter_mm/infraType/crossing}` |
 | `src/lib/floorPlanHelpers.js` | Shared constants (ROOM_COLORS) and utilities (generateId, computeCentroid, ensureIds) for floor plan editing |
 | `src/lib/wallGeometry.js` | Wall/room geometry utilities: snap-to-grid, wall-to-rect, shoelace area, point-in-polygon, room polygon updates |
 | `src/lib/buildingGeometry.js` | GeoJSON polygon → local metres; polygon shrink; `extractFootprint()`; `makeCircularFootprint()` for point towers; `subdivideFootprintIntoUnits()` for townhouse rows |
+| `src/lib/infrastructureGeometry.js` | Infrastructure geometry: `alignmentToLocal()` (geo/metric coords to local offsets), `generatePipeSegment()` (CylinderGeometry between points), `generateManhole()` (vertical shaft), `generateFitting()` (elbow/tee/reducer) |
+| `src/lib/bridgeGeometry.js` | Bridge geometry: `generateBridgeDeck()` (BoxGeometry), `generateGirder()` (I-beam/box ExtrudeGeometry), `generateAbutment()`, `generatePier()`, `generateBarrier()` |
 | `src/lib/parcelState.test.js` | Node native test runner unit tests for parcelState |
 | `src/lib/chatCommands.test.js` | Unit tests for chatCommands |
 
@@ -502,6 +539,8 @@ activeNav, savedParcels, showHistory, searchHistory (localStorage per user)
 | File | Purpose |
 |------|---------|
 | `src/ModelViewer.css` | 3D model modal styles: dark overlay, header, canvas, controls bar, "Model" map button, version control bar, view mode toggle, floor selector, room info panel, commit modal, history panel |
+| `src/InfrastructureViewer.css` | Infrastructure viewer styles: overlay, canvas area, controls row, view toggle, edit toggle, profile/cross-section views, compliance panel, properties panels, component catalog |
+| `src/components/infrastructure/PipeNetworkEditor.css` | Pipe editor styles: toolbar (left), canvas (center), tool buttons, flow arrows, undo/redo group |
 | `src/index.css` | 52KB global design system: dark theme, gold accent (#c8a55c), Inter font, sidebar/panel/chat/searchbar/button styles. Layout states via body classes: `.sidebar-collapsed`, `.panel-open`, `.lp-active` |
 | `src/landing.css` | 554 lines marketing page styles: navbar, hero, typewriter, map preview, address bar, sections, footer |
 | `src/UserBubble.css` | Bubble animations: width expansion, pulse breathing, content reveal |
@@ -541,6 +580,7 @@ activeNav, savedParcels, showHistory, searchHistory (localStorage per user)
 | `alembic/versions/003_add_uploaded_documents.py` | Adds UploadedDocument + DocumentPage tables (3KB) |
 | `alembic/versions/004_add_policy_versions_created_at.py` | Adds created_at to policy_versions |
 | `alembic/versions/005_add_design_versions.py` | Adds design_branches + design_versions tables; floor plan columns on uploaded_documents |
+| `alembic/versions/006_add_infrastructure_assets.py` | Adds pipeline_assets + bridge_assets tables (PostGIS geometry); adds asset_type column to projects |
 
 ---
 
@@ -553,6 +593,7 @@ activeNav, savedParcels, showHistory, searchHistory (localStorage per user)
 | `scripts/seed_toronto.py` | Bulk ingests 5 Toronto Open Data datasets: parcels, zoning, height overlay, setback overlay, dev applications |
 | `scripts/ingest_toronto_tracks_1_2.py` | CLI for individual dataset ingestion: `parcel-base`, `address-linkage`, `zoning-geometry`, `dev-applications`, `overlay` |
 | `scripts/generate_sample_dxf.py` | Generates a rich 6-storey mixed-use sample DXF with structural/partition/exterior wall layers, door/window blocks with sill/head height attributes, ceiling height annotations, balcony polygons, structural columns; outputs `sample_building.dxf` |
+| `scripts/generate_sample_pipeline_dxf.py` | **NEW** — Generates a sample water main DXF (`sample_pipeline.dxf`) with 10 pipe segments, 6 manholes (MANHOLE blocks with ID/DEPTH/RIM/INVERT attribs), 3 gate valves, 2 fire hydrants on standard civil layers (WATER-MAIN, WATER-MH, WATER-VALVE, WATER-HYDRANT) |
 
 ---
 
@@ -625,6 +666,8 @@ constraints-red-flags     approval-pathway      → approval_pathway.json
 | `constraints-red-flags` | All upstream artifacts | `constraints_packet.json` | obc-hard-constraints.md, construction-risk-red-flags.md |
 | `approval-pathway` | normalized, analysis, precedent | `approval_pathway.json` | planning-approvals-process.md, building-permit-process.md, external-approvals.md |
 | `report-generator` | All upstream artifacts | `final_report.md` | None (synthesis only) |
+| `infrastructure-assessment` | Asset ID or location | Condition assessment JSON | opsd-standards.md, csa-s6-bridge-code.md |
+| `infrastructure-standards` | Standard reference or question | Standard details | mto-drainage-manual.md |
 
 ---
 

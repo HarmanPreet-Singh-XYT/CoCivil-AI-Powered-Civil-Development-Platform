@@ -6,11 +6,17 @@ Usage:
 from __future__ import annotations
 
 import argparse
+from datetime import datetime, timezone
 from pathlib import Path
 
 from app.config import settings
 from app.database import get_sync_db
-from app.devtools import redact_connection_url, render_preflight_checks, run_preflight_checks, raise_for_failed_checks
+from app.devtools import (
+    raise_for_failed_checks,
+    redact_connection_url,
+    render_preflight_checks,
+    run_preflight_checks,
+)
 from app.services.geospatial_ingestion import (
     get_or_create_jurisdiction,
     ingest_development_applications,
@@ -67,7 +73,10 @@ def main() -> None:
     parser.add_argument("--jurisdiction-name", default="Toronto")
     parser.add_argument("--province", default="Ontario")
     parser.add_argument("--country", default="CA")
-    parser.add_argument("--version-label", default="toronto-open-data-2024")
+    parser.add_argument(
+        "--version-label",
+        default=datetime.now(timezone.utc).strftime("toronto-open-data-%Y%m%d-%H%M%S"),
+    )
     parser.add_argument("--address-file", type=Path, default=None, help="Optional Toronto address-points GeoJSON/CSV")
     args = parser.parse_args()
 

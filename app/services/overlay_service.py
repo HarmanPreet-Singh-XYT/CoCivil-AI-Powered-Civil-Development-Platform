@@ -159,7 +159,7 @@ async def get_parcel_overlays_response(db: AsyncSession, parcel: Parcel) -> Parc
 
 
 def get_parcel_overlays_response_sync(db: Session, parcel: Parcel) -> ParcelOverlaysResponse:
-    """Sync version for use in Celery tasks."""
+    """Sync version for use in background tasks."""
     parcel_geom = select(Parcel.geom).where(Parcel.id == parcel.id).scalar_subquery()
     overlay_query = (
         select(DatasetFeature, DatasetLayer, SourceSnapshot)

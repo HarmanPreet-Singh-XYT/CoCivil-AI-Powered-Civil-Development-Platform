@@ -9,13 +9,10 @@ from app.models.dataset import DatasetLayer
 from app.models.ingestion import SourceSnapshot
 from app.models.policy import PolicyClause, PolicyReviewItem, PolicyVersion
 from app.services.geospatial_ingestion import get_or_create_jurisdiction
-from app.worker import celery_app
-
 logger = structlog.get_logger()
 
 
-@celery_app.task(bind=True, name="app.tasks.ingestion.activate_source_snapshot")
-def activate_source_snapshot(self, snapshot_id: str):
+def activate_source_snapshot(snapshot_id: str):
     db = get_sync_db()
     try:
         snapshot = db.query(SourceSnapshot).filter(SourceSnapshot.id == uuid.UUID(snapshot_id)).one_or_none()
@@ -39,8 +36,7 @@ def activate_source_snapshot(self, snapshot_id: str):
         db.close()
 
 
-@celery_app.task(bind=True, name="app.tasks.ingestion.publish_policy_version")
-def publish_policy_version(self, policy_version_id: str, source_snapshot_id: str | None = None):
+def publish_policy_version(policy_version_id: str, source_snapshot_id: str | None = None):
     db = get_sync_db()
     try:
         version = db.query(PolicyVersion).filter(PolicyVersion.id == uuid.UUID(policy_version_id)).one_or_none()
@@ -70,8 +66,7 @@ def publish_policy_version(self, policy_version_id: str, source_snapshot_id: str
         db.close()
 
 
-@celery_app.task(bind=True, name="app.tasks.ingestion.sync_policy_review_items")
-def sync_policy_review_items(self, policy_version_id: str, review_reason: str = "needs_review_flag"):
+def sync_policy_review_items(policy_version_id: str, review_reason: str = "needs_review_flag"):
     db = get_sync_db()
     try:
         version_uuid = uuid.UUID(policy_version_id)
@@ -110,8 +105,7 @@ def sync_policy_review_items(self, policy_version_id: str, review_reason: str = 
         db.close()
 
 
-@celery_app.task(bind=True, name="app.tasks.ingestion.publish_dataset_layer")
-def publish_dataset_layer(self, dataset_layer_id: str, source_snapshot_id: str | None = None):
+def publish_dataset_layer(dataset_layer_id: str, source_snapshot_id: str | None = None):
     db = get_sync_db()
     try:
         layer = db.query(DatasetLayer).filter(DatasetLayer.id == uuid.UUID(dataset_layer_id)).one_or_none()
@@ -141,8 +135,7 @@ def publish_dataset_layer(self, dataset_layer_id: str, source_snapshot_id: str |
         db.close()
 
 
-@celery_app.task(bind=True, name="app.tasks.ingestion.ingest_building_permits_task")
-def ingest_building_permits_task(self):
+def ingest_building_permits_task():
     """Ingest building permits from Toronto CKAN Open Data."""
     from app.services.ckan_ingestion import ingest_building_permits
 
@@ -163,8 +156,7 @@ def ingest_building_permits_task(self):
         db.close()
 
 
-@celery_app.task(bind=True, name="app.tasks.ingestion.ingest_coa_applications_task")
-def ingest_coa_applications_task(self):
+def ingest_coa_applications_task():
     """Ingest COA applications from Toronto CKAN Open Data."""
     from app.services.ckan_ingestion import ingest_coa_applications
 
@@ -185,8 +177,7 @@ def ingest_coa_applications_task(self):
         db.close()
 
 
-@celery_app.task(bind=True, name="app.tasks.ingestion.ingest_toronto_open_data")
-def ingest_toronto_open_data(self):
+def ingest_toronto_open_data():
     """Run both building permit and COA ingestion sequentially."""
     from app.services.ckan_ingestion import ingest_building_permits, ingest_coa_applications
 

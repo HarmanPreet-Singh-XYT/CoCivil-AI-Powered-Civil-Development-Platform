@@ -255,6 +255,68 @@ export async function generateResponseFromUpload(uploadId, responseType = 'corre
     });
 }
 
+// ─── Infrastructure ───
+
+export async function getNearbyPipelines(lat, lng, radius = 500, pipeType = null, options = {}) {
+    try {
+        let url = `${API_BASE}/infrastructure/pipelines/nearby?lat=${lat}&lng=${lng}&radius_m=${radius}`;
+        if (pipeType) url += `&pipe_type=${pipeType}`;
+        return await apiFetch(url, options);
+    } catch (error) {
+        if (isAbortError(error)) throw error;
+        return { type: 'FeatureCollection', features: [] };
+    }
+}
+
+export async function getNearbyBridges(lat, lng, radius = 2000, options = {}) {
+    try {
+        return await apiFetch(
+            `${API_BASE}/infrastructure/bridges/nearby?lat=${lat}&lng=${lng}&radius_m=${radius}`,
+            options
+        );
+    } catch (error) {
+        if (isAbortError(error)) throw error;
+        return { type: 'FeatureCollection', features: [] };
+    }
+}
+
+export async function checkPipelineCompliance(params) {
+    return apiFetch(`${API_BASE}/infrastructure/compliance/pipeline`, {
+        method: 'POST',
+        body: JSON.stringify(params),
+    });
+}
+
+export async function checkBridgeCompliance(params) {
+    return apiFetch(`${API_BASE}/infrastructure/compliance/bridge`, {
+        method: 'POST',
+        body: JSON.stringify(params),
+    });
+}
+
+export async function parseInfraModel(text, currentParams = null, assetType = 'pipeline') {
+    return apiFetch(`${API_BASE}/assistant/parse-infra-model`, {
+        method: 'POST',
+        body: JSON.stringify({ text, current_params: currentParams, asset_type: assetType }),
+    });
+}
+
+export async function triggerWaterMainIngestion() {
+    return apiFetch(`${API_BASE}/admin/ingest/water-mains`, { method: 'POST' });
+}
+
+export async function triggerSanitarySewerIngestion() {
+    return apiFetch(`${API_BASE}/admin/ingest/sanitary-sewers`, { method: 'POST' });
+}
+
+export async function triggerStormSewerIngestion() {
+    return apiFetch(`${API_BASE}/admin/ingest/storm-sewers`, { method: 'POST' });
+}
+
+export async function triggerBridgeIngestion() {
+    return apiFetch(`${API_BASE}/admin/ingest/bridges`, { method: 'POST' });
+}
+
 // ─── Design Version Control ───
 
 export async function createBranch(projectId, name, fromVersionId = null) {

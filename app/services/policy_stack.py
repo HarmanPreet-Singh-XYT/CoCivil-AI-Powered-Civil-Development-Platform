@@ -175,7 +175,7 @@ async def get_policy_stack_response(db: AsyncSession, parcel: Parcel) -> PolicyS
 
 
 def get_policy_stack_response_sync(db: Session, parcel: Parcel) -> PolicyStackResponse:
-    """Sync version for use in Celery tasks."""
+    """Sync version for use in background tasks."""
     parcel_geom = select(Parcel.geom).where(Parcel.id == parcel.id).scalar_subquery()
 
     zone_match = func.coalesce(func.cardinality(PolicyApplicabilityRule.zone_filter), 0) == 0

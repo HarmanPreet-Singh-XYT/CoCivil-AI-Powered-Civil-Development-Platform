@@ -4,28 +4,36 @@ import csv
 import hashlib
 import json
 import re
+import time
 import uuid
 from dataclasses import dataclass
 from datetime import datetime, timezone
 from pathlib import Path
-from typing import Any, Iterable
+from typing import Any, Iterable, Iterator
 
 from geoalchemy2 import WKTElement
+from psycopg2.extras import execute_values
 from sqlalchemy import func, select
 from sqlalchemy.orm import Session
 
 from app.models.dataset import DatasetFeature, DatasetLayer
 from app.models.entitlement import DevelopmentApplication
-from app.models.geospatial import Jurisdiction, Parcel, ParcelAddress, ParcelZoningAssignment
+from app.models.geospatial import Jurisdiction, Parcel, ParcelAddress
 from app.models.ingestion import IngestionJob, SourceSnapshot
 from app.services.geospatial import (
     AddressCandidate,
-    ZoningAssignmentCandidate,
     choose_canonical_address,
-    choose_primary_zoning_assignment,
 )
 
+try:
+    import ijson
+except ImportError:  # pragma: no cover - exercised only when optional dep is missing
+    ijson = None
+
 INGESTION_VERSION = "tracks_1_2_v1"
+MAX_TRACKED_ISSUES = 200
+DEFAULT_PARCEL_BATCH_SIZE = 250
+PARCEL_PROGRESS_EVERY = 5_000
 
 PARCEL_PIN_FIELDS = ("pin", "PIN", "parcel_id", "PARCEL_ID", "roll_number", "PARCELID")
 PARCEL_ADDRESS_FIELDS = ("address", "ADDRESS", "municipal_address", "MUNICIPAL_ADDRESS", "LINEAR_NAME_FULL")
@@ -210,6 +218,27 @@ def _read_geojson(path: Path) -> list[dict[str, Any]]:
     return payload.get("features", [])
 
 
+def _iter_geojson_features(path: Path) -> Iterator[dict[str, Any]]:
+    if ijson is None:
+        yield from _read_geojson(path)
+        return
+
+    with path.open("rb") as handle:
+        collection_type = next(ijson.items(handle, "type"), None)
+    if collection_type != "FeatureCollection":
+        raise ValueError(f"{path} must be a GeoJSON FeatureCollection")
+
+    with path.open("rb") as handle:
+        yield from ijson.items(handle, "features.item")
+
+
+def _append_issue(summary: IngestionSummary, issue: dict[str, Any]) -> None:
+    if summary.issues is None:
+        summary.issues = []
+    if len(summary.issues) < MAX_TRACKED_ISSUES:
+        summary.issues.append(issue)
+
+
 def _read_csv(path: Path) -> list[dict[str, Any]]:
     with path.open(newline="") as handle:
         return list(csv.DictReader(handle))
@@ -328,6 +357,81 @@ def _finalize_job(job: IngestionJob, summary: IngestionSummary, *, error: str | 
     job.completed_at = _now()
 
 
+def _prepare_parcel_insert_row(
+    *,
+    jurisdiction_id: uuid.UUID,
+    snapshot_id: uuid.UUID,
+    feature: dict[str, Any],
+    index: int,
+    summary: IngestionSummary,
+) -> tuple[Any, ...] | None:
+    properties = feature.get("properties") or {}
+    geometry = feature.get("geometry") or {}
+    pin = _pick(properties, PARCEL_PIN_FIELDS)
+    if not pin:
+        summary.failed += 1
+        _append_issue(summary, {"row": index, "reason": "missing_pin"})
+        return None
+
+    address = _pick(properties, PARCEL_ADDRESS_FIELDS)
+    if not address or address == _pick(properties, ("LINEAR_NAME_FULL",)):
+        addr_num = properties.get("ADDRESS_NUMBER") or ""
+        street = properties.get("LINEAR_NAME_FULL") or ""
+        composed = f"{addr_num} {street}".strip()
+        if composed:
+            address = composed
+
+    return (
+        jurisdiction_id,
+        snapshot_id,
+        str(pin),
+        str(address).strip() if address not in (None, "") else None,
+        geojson_to_wkt(geometry),
+        _coerce_float(_pick(properties, PARCEL_LOT_AREA_FIELDS)),
+        _coerce_float(_pick(properties, PARCEL_FRONTAGE_FIELDS)),
+        _coerce_float(_pick(properties, PARCEL_DEPTH_FIELDS)),
+        _normalize_text_value(_pick(properties, PARCEL_CURRENT_USE_FIELDS)),
+    )
+
+
+def _insert_parcel_batch(cursor: Any, rows: list[tuple[Any, ...]]) -> int:
+    execute_values(
+        cursor,
+        """
+        INSERT INTO parcels (
+            jurisdiction_id,
+            source_snapshot_id,
+            pin,
+            address,
+            geom,
+            lot_area_m2,
+            lot_frontage_m,
+            lot_depth_m,
+            current_use
+        )
+        VALUES %s
+        ON CONFLICT ON CONSTRAINT uq_parcels_jurisdiction_pin_snapshot DO NOTHING
+        RETURNING 1
+        """,
+        rows,
+        template="""
+        (
+            %s::uuid,
+            %s::uuid,
+            %s,
+            %s,
+            ST_SetSRID(ST_GeomFromText(%s), 4326),
+            %s,
+            %s,
+            %s,
+            %s
+        )
+        """,
+        page_size=len(rows),
+    )
+    return len(cursor.fetchall())
+
+
 def ingest_parcel_geojson(
     db: Session,
     *,
@@ -337,13 +441,12 @@ def ingest_parcel_geojson(
     source_url: str,
     publisher: str | None = None,
 ) -> tuple[SourceSnapshot, IngestionJob]:
-    # Load features and free the raw payload to reduce peak memory
-    with open(geojson_path) as f:
-        payload = json.load(f)
-    if payload.get("type") != "FeatureCollection":
-        raise ValueError(f"{geojson_path} must be a GeoJSON FeatureCollection")
-    features = payload.pop("features", [])
-    del payload
+    batch_size = DEFAULT_PARCEL_BATCH_SIZE
+    progress_every = PARCEL_PROGRESS_EVERY
+    file_size_mb = geojson_path.stat().st_size / (1024 * 1024)
+
+    print(f"  Hashing parcel source file ({file_size_mb:.1f} MB)...", flush=True)
+    file_hash = _sha256_file(geojson_path)
 
     snapshot = create_snapshot(
         db,
@@ -352,7 +455,7 @@ def ingest_parcel_geojson(
         version_label=version_label,
         source_url=source_url,
         publisher=publisher,
-        file_hash=_sha256_file(geojson_path),
+        file_hash=file_hash,
         schema_version="geojson-feature-collection",
     )
     job = create_ingestion_job(
@@ -362,57 +465,73 @@ def ingest_parcel_geojson(
         source_snapshot_id=snapshot.id,
         job_type="parcel_base",
     )
+    db.commit()
 
-    BATCH_SIZE = 1000
     summary = IngestionSummary(issues=[])
-    seen_pins: set[str] = set()
+    bind = db.get_bind()
+    engine = getattr(bind, "engine", bind)
+    raw_conn = engine.raw_connection()
+    batch: list[tuple[Any, ...]] = []
+    started_at = time.monotonic()
+    next_progress_mark = progress_every
+
+    print(
+        f"  Streaming parcel features from {geojson_path.name} "
+        f"in batches of {batch_size}...",
+        flush=True,
+    )
     try:
-        for index, feature in enumerate(features):
-            properties = feature.get("properties") or {}
-            geometry = feature.get("geometry") or {}
-            pin = _pick(properties, PARCEL_PIN_FIELDS)
-            if pin in seen_pins:
-                summary.failed += 1
-                summary.issues.append({"row": index, "reason": "duplicate_pin", "pin": pin})
-                continue
-            if not pin:
-                summary.failed += 1
-                summary.issues.append({"row": index, "reason": "missing_pin"})
-                continue
+        with raw_conn.cursor() as cursor:
+            for index, feature in enumerate(_iter_geojson_features(geojson_path)):
+                row = _prepare_parcel_insert_row(
+                    jurisdiction_id=jurisdiction_id,
+                    snapshot_id=snapshot.id,
+                    feature=feature,
+                    index=index,
+                    summary=summary,
+                )
+                if row is None:
+                    continue
 
-            seen_pins.add(str(pin))
-            address = _pick(properties, PARCEL_ADDRESS_FIELDS)
-            if not address or address == _pick(properties, ("LINEAR_NAME_FULL",)):
-                addr_num = properties.get("ADDRESS_NUMBER") or ""
-                street = properties.get("LINEAR_NAME_FULL") or ""
-                composed = f"{addr_num} {street}".strip()
-                if composed:
-                    address = composed
-            parcel = Parcel(
-                jurisdiction_id=jurisdiction_id,
-                source_snapshot_id=snapshot.id,
-                pin=str(pin),
-                address=address,
-                geom=WKTElement(geojson_to_wkt(geometry), srid=4326),
-                lot_area_m2=_coerce_float(_pick(properties, PARCEL_LOT_AREA_FIELDS)),
-                lot_frontage_m=_coerce_float(_pick(properties, PARCEL_FRONTAGE_FIELDS)),
-                lot_depth_m=_coerce_float(_pick(properties, PARCEL_DEPTH_FIELDS)),
-                current_use=_pick(properties, PARCEL_CURRENT_USE_FIELDS),
-            )
-            db.add(parcel)
-            summary.processed += 1
+                batch.append(row)
+                if len(batch) < batch_size:
+                    continue
 
-            # Flush in batches to keep memory usage bounded
-            if summary.processed % BATCH_SIZE == 0:
-                db.flush()
+                inserted = _insert_parcel_batch(cursor, batch)
+                raw_conn.commit()
+                summary.processed += inserted
+                summary.failed += len(batch) - inserted
+                batch.clear()
+
+                if summary.processed >= next_progress_mark:
+                    elapsed = time.monotonic() - started_at
+                    job.records_processed = summary.processed
+                    job.records_failed = summary.failed
+                    db.commit()
+                    print(
+                        f"    ... {summary.processed:,} parcels inserted "
+                        f"({summary.failed:,} skipped/failed, {elapsed:.1f}s elapsed)",
+                        flush=True,
+                    )
+                    next_progress_mark += progress_every
+
+            if batch:
+                inserted = _insert_parcel_batch(cursor, batch)
+                raw_conn.commit()
+                summary.processed += inserted
+                summary.failed += len(batch) - inserted
 
         publish_snapshot(db, snapshot, validation_summary=summary.as_json())
         _finalize_job(job, summary)
     except Exception as exc:
+        raw_conn.rollback()
         summary.failed += 1
-        summary.issues.append({"reason": "exception", "detail": str(exc)})
+        _append_issue(summary, {"reason": "exception", "detail": str(exc)})
         _finalize_job(job, summary, error=str(exc))
+        db.commit()
         raise
+    finally:
+        raw_conn.close()
 
     db.commit()
     return snapshot, job
@@ -744,8 +863,17 @@ def ingest_zoning_geojson(
         # Count results for summary
         result = db.execute(text("""
             SELECT
-                (SELECT count(*) FROM parcel_zoning_assignments WHERE source_snapshot_id = CAST(:snapshot_id AS uuid)) as total,
-                (SELECT count(DISTINCT parcel_id) FROM parcel_zoning_assignments WHERE source_snapshot_id = CAST(:snapshot_id AS uuid) AND is_primary = true) as assigned
+                (
+                    SELECT count(*)
+                    FROM parcel_zoning_assignments
+                    WHERE source_snapshot_id = CAST(:snapshot_id AS uuid)
+                ) as total,
+                (
+                    SELECT count(DISTINCT parcel_id)
+                    FROM parcel_zoning_assignments
+                    WHERE source_snapshot_id = CAST(:snapshot_id AS uuid)
+                        AND is_primary = true
+                ) as assigned
         """), {"snapshot_id": snapshot_id_str}).one()
         summary.processed += result.assigned
 

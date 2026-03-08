@@ -13,9 +13,33 @@ const COMMIT_RE = /^commit(?:\s+(.+))?$/i;
 const BRANCH_RE = /^(?:create\s+)?branch\s+(.+)$/i;
 const HISTORY_RE = /^(?:show\s+)?history$/i;
 
+// Infrastructure model commands — matched before the generic MODEL_RE
+const INFRA_MODEL_RE = /^(design|create|build)\s+.*(\d+)\s*mm\s*(storm|sanitary|water|gas).*/i;
+const BRIDGE_MODEL_RE = /^(design|create|build)\s+.*bridge\s*(over|across|spanning)\s+.*/i;
+
 export function parseChatCommand(input) {
   const text = input.trim();
   if (!text) return { type: 'none' };
+
+  // Infrastructure commands — check before generic model match
+  const infraMatch = text.match(INFRA_MODEL_RE);
+  if (infraMatch) {
+    return {
+      type: 'infra_model',
+      query: text,
+      diameter_mm: parseInt(infraMatch[2], 10),
+      infraType: infraMatch[3].toLowerCase(),
+    };
+  }
+
+  const bridgeMatch = text.match(BRIDGE_MODEL_RE);
+  if (bridgeMatch) {
+    return {
+      type: 'bridge_model',
+      query: text,
+      crossing: bridgeMatch[2].toLowerCase(),
+    };
+  }
 
   const floorMatch = text.match(FLOOR_RE);
   if (floorMatch) return { type: 'show_floor', floor: parseInt(floorMatch[1], 10) };
@@ -28,8 +52,8 @@ export function parseChatCommand(input) {
     return { type: 'commit', message: m[1] || null };
   }
 
-  const branchMatch = text.match(BRANCH_RE);
-  if (branchMatch) return { type: 'branch', name: branchMatch[1].trim() };
+  const branchMatchResult = text.match(BRANCH_RE);
+  if (branchMatchResult) return { type: 'branch', name: branchMatchResult[1].trim() };
 
   if (HISTORY_RE.test(text)) return { type: 'show_history' };
 

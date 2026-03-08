@@ -75,3 +75,29 @@ class ModelParseResponse(BaseModel):
     unit_width: float | None = None
     tower_shape: str | None = None
     warnings: list[str] | None = None
+
+
+class InfraModelUpdate(BaseModel):
+    pipe_type: str | None = None
+    material: str | None = None
+    diameter_mm: float | None = None
+    depth_m: float | None = None
+    slope_pct: float | None = None
+    bridge_type: str | None = None
+    structure_type: str | None = None
+    span_m: float | None = None
+    deck_width_m: float | None = None
+    clearance_m: float | None = None
+    warnings: list[str] | None = None
+
+
+class InfraModelParseRequest(BaseModel):
+    text: str
+    asset_type: Literal["pipeline", "bridge"]
+    current_params: dict | None = None
+
+
+class InfraModelParseResponse(BaseModel):
+    asset_type: str
+    params: dict
+    warnings: list[str] | None = None

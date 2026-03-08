@@ -7,8 +7,6 @@ import structlog
 from app.database import get_sync_db
 from app.models.plan import DevelopmentPlan, SubmissionDocument
 from app.services.submission.readiness import evaluate_submission_readiness
-from app.worker import celery_app
-
 logger = structlog.get_logger()
 
 PIPELINE_STEPS = [
@@ -227,7 +225,7 @@ def _fail_plan(db, plan, step, error):
 
 
 def _run_query_parsing(query: str) -> dict:
-    """Run the async AI query parser from a sync Celery context."""
+    """Run the async AI query parser from a sync context."""
     from app.ai.factory import get_ai_provider
     from app.ai.query_parser import parse_development_query
 
@@ -615,8 +613,7 @@ def _build_grounded_content(doc_spec: dict, context: dict, preamble: str) -> str
     return "".join(sections)
 
 
-@celery_app.task(bind=True, name="app.tasks.plan.run_plan_generation")
-def run_plan_generation(self, plan_id: str, query: str, auto_run: bool = True, generate_subset: list[str] | None = None):
+def run_plan_generation(plan_id: str, query: str, auto_run: bool = True, generate_subset: list[str] | None = None):
     """Orchestrate the full plan generation pipeline.
 
     Pipeline steps:

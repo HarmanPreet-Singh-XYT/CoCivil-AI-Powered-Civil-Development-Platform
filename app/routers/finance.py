@@ -1,3 +1,4 @@
+import threading
 import uuid
 from typing import Any
 
@@ -97,7 +98,11 @@ async def create_financial_run(
     await db.refresh(run)
     await db.commit()
 
-    run_financial_analysis.delay(str(run.id), str(scenario_id), body.parameters)
+    threading.Thread(
+        target=run_financial_analysis,
+        args=(str(run.id), str(scenario_id), body.parameters),
+        daemon=True,
+    ).start()
 
     response = JobAccepted(
         job_id=run.id,

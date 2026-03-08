@@ -11,10 +11,12 @@ import {
     uploadDocument,
     getUpload,
     parseModel,
+    parseInfraModel,
 } from '../api.js';
 import ContractorCards from './ContractorCards.jsx';
 import { parseChatCommand } from '../lib/chatCommands.js';
 import { formatParcelContext } from '../lib/parcelState.js';
+import useResizable from '../hooks/useResizable.js';
 
 const POLL_INTERVAL_MS = 3000;
 
@@ -53,7 +55,16 @@ function planStartErrorMessage(error, filename = null) {
         : `Failed to start generation: ${error.message}`;
 }
 
-export default function ChatPanel({ parcelContext, onPlanComplete, onToggleExpand, modelParams, onModelUpdate, analyzedUploads, activePlanId }) {
+export default function ChatPanel({ parcelContext, onPlanComplete, onToggleExpand, modelParams, onModelUpdate, analyzedUploads, activePlanId, assetType }) {
+    const { isResizing: isChatResizing, handleProps: chatResizeProps } = useResizable({
+        defaultSize: 280,
+        minSize: 150,
+        maxSize: 600,
+        axis: 'vertical',
+        reverse: true,
+        cssVar: '--chat-height',
+    });
+
     const [isExpanded, setIsExpanded] = useState(false);
     const [messages, setMessages] = useState([
         {
@@ -229,6 +240,32 @@ export default function ChatPanel({ parcelContext, onPlanComplete, onToggleExpan
         // Keep upload-specific commands as direct shortcuts
         const command = parseChatCommand(text);
 
+        if (command.type === 'infra_model' || command.type === 'bridge_model') {
+            try {
+                const infraAssetType = command.type === 'bridge_model' ? 'bridge' : 'pipeline';
+                const params = await parseInfraModel(text, modelParams, infraAssetType);
+                onModelUpdate?.(params);
+                let infraMsg = command.type === 'bridge_model'
+                    ? `Bridge design updated: ${params.span_m || 0}m span, ${params.deck_width_m || 0}m deck width (${(params.structure_type || '').replace(/_/g, ' ')}).`
+                    : `Pipeline design updated: ${params.diameter_mm || 0}mm ${params.material || ''} ${params.infra_type || ''} pipe, ${params.length_m || 0}m length.`;
+                if (params.warnings?.length) {
+                    infraMsg += '\n-- ' + params.warnings.join('\n-- ');
+                }
+                setMessages((prev) => [...prev, {
+                    role: 'assistant',
+                    text: infraMsg,
+                }]);
+            } catch (err) {
+                setMessages((prev) => [...prev, {
+                    role: 'assistant',
+                    text: `Couldn't parse infrastructure description: ${err.message}`,
+                }]);
+            } finally {
+                setIsTyping(false);
+            }
+            return;
+        }
+
         if (command.type === 'model') {
             try {
                 const zoneCode = parcelContext?.zoneCode || parcelContext?.zone_code || parcelContext?.zoning || null;
@@ -237,7 +274,7 @@ export default function ChatPanel({ parcelContext, onPlanComplete, onToggleExpan
                 onModelUpdate?.(params);
                 let modelMsg = `Building updated: ${params.storeys} storeys, ${params.height_m}m tall (${(params.typology || '').replace(/_/g, ' ')}).`;
                 if (params.warnings?.length) {
-                    modelMsg += '\n⚠ ' + params.warnings.join('\n⚠ ');
+                    modelMsg += '\n-- ' + params.warnings.join('\n-- ');
                 }
                 setMessages((prev) => [...prev, {
                     role: 'assistant',
@@ -369,11 +406,31 @@ export default function ChatPanel({ parcelContext, onPlanComplete, onToggleExpan
 
                 if (upload.status === 'analyzed') {
                     setUploadProgress(null);
+                    const ed = upload.extracted_data || {};
+
+                    // Pipeline DXF path
+                    if (ed.pipeline_network) {
+                        const net = ed.pipeline_network;
+                        const s = net.summary || {};
+                        const parts = [
+                            `Pipeline DXF analyzed: ${filename}`,
+                            `Network: ${s.pipe_count ?? 0} pipe segments · ${s.total_length_m ?? 0}m total length`,
+                        ];
+                        if (s.manhole_count) parts.push(`Manholes: ${s.manhole_count}`);
+                        if (s.valve_count)   parts.push(`Valves: ${s.valve_count}`);
+                        if (s.hydrant_count) parts.push(`Hydrants: ${s.hydrant_count}`);
+                        parts.push('\nThe 3D pipeline viewer has opened. Click any pipe or manhole to edit its properties.');
+                        setMessages((prev) => [...prev, { role: 'assistant', text: parts.join('\n') }]);
+                        setLatestAnalyzedUpload({ id: uploadId, filename });
+                        return;
+                    }
+
+                    // Standard document path
                     const parts = [`Document analyzed: ${filename}`];
                     if (upload.doc_category) parts.push(`Category: ${upload.doc_category.replace(/_/g, ' ')}`);
                     if (upload.page_count) parts.push(`Pages: ${upload.page_count}`);
-                    if (upload.extracted_data && !upload.extracted_data.error && !upload.extracted_data.note) {
-                        const b = upload.extracted_data.building || {};
+                    if (ed && !ed.error && !ed.note) {
+                        const b = ed.building || {};
                         const items = [];
                         if (b.storeys) items.push(`${b.storeys} storeys`);
                         if (b.unit_count) items.push(`${b.unit_count} units`);
@@ -468,7 +525,8 @@ export default function ChatPanel({ parcelContext, onPlanComplete, onToggleExpan
     }, [sendMessage]);
 
     return (
-        <div id="chat-panel" className={isExpanded ? 'expanded' : ''}>
+        <div id="chat-panel" className={isExpanded ? 'expanded' : ''} style={{ userSelect: isChatResizing ? 'none' : undefined }}>
+            {isExpanded && <div {...chatResizeProps} style={{ ...chatResizeProps.style, top: -2 }} />}
             <div id="chat-toggle" role="button" tabIndex="0" aria-label="Toggle chat" onClick={handleToggle}>
                 <div id="chat-toggle-left">
                     <svg viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="1.5">

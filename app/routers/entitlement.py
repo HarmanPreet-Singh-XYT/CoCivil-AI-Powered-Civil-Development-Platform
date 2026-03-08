@@ -1,3 +1,4 @@
+import threading
 import uuid
 
 from fastapi import APIRouter, Depends, status
@@ -50,7 +51,11 @@ async def create_entitlement_run(
     await db.refresh(result)
     await db.commit()
 
-    run_entitlement_check.delay(str(result.id), str(scenario_id), body.parameters)
+    threading.Thread(
+        target=run_entitlement_check,
+        args=(str(result.id), str(scenario_id), body.parameters),
+        daemon=True,
+    ).start()
 
     response = JobAccepted(
         job_id=result.id,
@@ -96,7 +101,11 @@ async def create_precedent_search(
     await db.refresh(search)
     await db.commit()
 
-    run_precedent_search.delay(str(search.id), str(scenario_id), body.model_dump())
+    threading.Thread(
+        target=run_precedent_search,
+        args=(str(search.id), str(scenario_id), body.model_dump()),
+        daemon=True,
+    ).start()
 
     response = JobAccepted(
         job_id=search.id,

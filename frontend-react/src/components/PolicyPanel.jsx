@@ -1,6 +1,7 @@
 import { useState, useMemo, useCallback, useEffect, useRef } from 'react';
 import { getParcelOverlays, getParcelZoningAnalysis, getPolicyStack, getNearbyApplications, getParcelFinancialSummary, uploadDocument, getUpload, getPlanDocuments, regeneratePlanDocument } from '../api.js';
 import { isResolvedParcel, isUnresolvedParcel } from '../lib/parcelState.js';
+import useResizable from '../hooks/useResizable.js';
 
 const UPLOAD_POLL_MS = 3000;
 const UPLOAD_MAX_ATTEMPTS = 40;
@@ -199,23 +200,6 @@ function FileUploadZone({ onUploadComplete }) {
     );
 }
 
-function complianceStatus(proposed, max) {
-    if (proposed === '' || proposed === undefined || proposed === null) return 'neutral';
-    const p = parseFloat(proposed);
-    const m = parseFloat(max);
-    if (Number.isNaN(p) || Number.isNaN(m)) return 'neutral';
-    if (p <= m) return 'ok';
-    if (p <= m * 1.15) return 'variance';
-    return 'rezone';
-}
-
-function statusIcon(status) {
-    if (status === 'ok') return <span className="compliance-dot compliance-ok" title="Compliant">●</span>;
-    if (status === 'variance') return <span className="compliance-dot compliance-variance" title="Minor variance likely">●</span>;
-    if (status === 'rezone') return <span className="compliance-dot compliance-rezone" title="Rezoning required">●</span>;
-    return <span className="compliance-dot compliance-neutral">○</span>;
-}
-
 function formatMetric(value, suffix = '', fallback = 'Unavailable') {
     if (value === null || value === undefined || value === '') return fallback;
     return `${value}${suffix}`;
@@ -264,57 +248,21 @@ function LoadingZoningTab({ parcel }) {
     );
 }
 
-function OverviewTab({ parcel, zoning, proposal, setProposal, onUploadComplete }) {
-    const update = (key, val) => setProposal((prev) => ({ ...prev, [key]: val }));
-    const rows = [
-        { label: 'Height (m)', permitted: zoning.maxHeight, key: 'height' },
-        { label: 'FSI / FAR', permitted: zoning.maxFsi, key: 'fsi' },
-        { label: 'Storeys', permitted: zoning.maxStoreys, key: 'storeys' },
-        { label: 'Lot Coverage (%)', permitted: zoning.lotCoverage, key: 'lotCoverage' },
-    ];
+function OverviewTab({ parcel, zoning, onUploadComplete }) {
     const zoneName = zoneDisplay(parcel, zoning);
 
     return (
         <>
             <FileUploadZone onUploadComplete={onUploadComplete} />
 
-            <div className="tab-section-header" style={{ marginTop: 16 }}>
-                <h3>Project Configurator</h3>
-                <p className="tab-section-desc">Compare your proposal against backend zoning analysis for {zoneName}.</p>
-                <p className="tab-section-desc" style={{ marginTop: 8, opacity: 0.8 }}>
-                    This tab uses the backend bylaw parser and reference tables instead of a frontend zoning lookup.
-                </p>
-            </div>
-
-            <div className="dd-address-badge">
+            <div className="dd-address-badge" style={{ marginTop: 16 }}>
                 <span className="dd-zone-chip">{zoning.zoneCategory || parcel.zoning || '—'}</span>
                 <span>{parcel.address}</span>
             </div>
 
-            <div className="configurator-grid">
-                <div className="config-col-header">Zoning Permits</div>
-                <div className="config-col-header">Your Proposal</div>
-                <div className="config-col-header config-col-status" />
-
-                {rows.map((row) => {
-                    const status = complianceStatus(proposal[row.key], row.permitted);
-                    return (
-                        <div className="config-row" key={row.key}>
-                            <div className="config-label">{row.label}</div>
-                            <div className="config-permitted">{formatMetric(row.permitted)}</div>
-                            <div className="config-proposed">
-                                <input
-                                    type="number"
-                                    className="config-input"
-                                    value={proposal[row.key]}
-                                    onChange={(event) => update(row.key, event.target.value)}
-                                    placeholder="—"
-                                />
-                            </div>
-                            <div className="config-status">{statusIcon(status)}</div>
-                        </div>
-                    );
-                })}
+            <div className="tab-section-header">
+                <h3>Zoning Summary</h3>
+                <p className="tab-section-desc">Backend zoning analysis for {zoneName}.</p>
             </div>
 
             <div className="dd-card">
@@ -325,69 +273,27 @@ function OverviewTab({ parcel, zoning, proposal, setProposal, onUploadComplete }
                 <div className="dd-card-label">By-law Reference</div>
                 <div className="dd-card-value">{formatMetric(zoning.bylawSection, '', 'Unavailable')}</div>
             </div>
+
+            <div className="zoning-limits-grid">
+                {[
+                    { label: 'Max Height', value: formatMetric(zoning.maxHeight, ' m') },
+                    { label: 'Max FSI', value: formatMetric(zoning.maxFsi) },
+                    { label: 'Max Storeys', value: formatMetric(zoning.maxStoreys) },
+                    { label: 'Lot Coverage', value: formatMetric(zoning.lotCoverage, '%') },
+                ].map((item) => (
+                    <div key={item.label} className="zoning-limit-card">
+                        <div className="dd-card-label">{item.label}</div>
+                        <div className="dd-card-value">{item.value}</div>
+                    </div>
+                ))}
+            </div>
+
             <div className="dd-card">
                 <div className="dd-card-label">Permitted Uses</div>
                 <div className="tag-list">
                     {(zoning.uses || []).length > 0
                         ? zoning.uses.map((use) => <span key={use} className="tag">{use}</span>)
                         : <span className="tag">No uses surfaced</span>
-                    }
-                </div>
-            </div>
-            <ReviewNotesCard zoning={zoning} />
-
-            <div className="compliance-legend">
-                <span><span className="compliance-dot compliance-ok">●</span> As-of-right</span>
-                <span><span className="compliance-dot compliance-variance">●</span> Minor variance</span>
-                <span><span className="compliance-dot compliance-rezone">●</span> Rezoning</span>
-            </div>
-        </>
-    );
-}
-
-function MassingTab({ zoning, parcel }) {
-    const hasLotArea = Number.isFinite(parcel.lotArea);
-    const envelopeRows = [
-        { label: 'Front Setback', value: formatMetric(zoning.frontSetback, ' m') },
-        { label: 'Interior Side Setback', value: formatMetric(zoning.sideSetback, ' m') },
-        { label: 'Exterior Side Setback', value: formatMetric(zoning.exteriorSideSetback, ' m') },
-        { label: 'Rear Setback', value: formatMetric(zoning.rearSetback, ' m') },
-        { label: 'Max Height', value: formatMetric(zoning.maxHeight, ' m') },
-        { label: 'Max Storeys', value: formatMetric(zoning.maxStoreys) },
-        { label: 'Max FSI', value: formatMetric(zoning.maxFsi) },
-        { label: 'Lot Coverage', value: formatMetric(zoning.lotCoverage, '%') },
-        { label: 'Min Landscaping', value: formatMetric(zoning.landscaping, '%') },
-    ];
-
-    return (
-        <>
-            <div className="tab-section-header">
-                <h3>Building Envelope</h3>
-                <p className="tab-section-desc">Physical constraints derived from backend zoning analysis for {zoneDisplay(parcel, zoning)}.</p>
-                <p className="tab-section-desc" style={{ marginTop: 8, opacity: 0.8 }}>
-                    If the parcel carries exceptions or overlays, the review notes below should be checked before treating these values as final.
-                </p>
-            </div>
-
-            <div className="massing-grid">
-                {envelopeRows.map((row) => (
-                    <div className="massing-card" key={row.label}>
-                        <div className="massing-label">{row.label}</div>
-                        <div className="massing-value">{row.value}</div>
-                    </div>
-                ))}
-            </div>
-
-            <div className="dd-card">
-                <div className="dd-card-label">Lot Area</div>
-                <div className="dd-card-value">{hasLotArea ? `${parcel.lotArea} m²` : 'Unavailable'}</div>
-            </div>
-            <div className="dd-card">
-                <div className="dd-card-label">Max GFA (FSI × Lot Area)</div>
-                <div className="dd-card-value">
-                    {hasLotArea && zoning.maxFsi != null
-                        ? `${(parcel.lotArea * zoning.maxFsi).toFixed(0)} m²`
-                        : 'Unavailable without parcel lot area and FSI'
                     }
                 </div>
             </div>
@@ -623,122 +529,6 @@ function MissingZoningGuidanceTab({ parcel }) {
                 Policy extracts and datasets may still be available in their tabs, but overview, massing, and entitlement guidance are unavailable here.
             </p>
         </div>
-    );
-}
-
-function EntitlementsTab({ parcel, zoning, proposal }) {
-    const approvals = useMemo(() => {
-        const items = [];
-
-        const check = (label, proposed, max) => {
-            const status = complianceStatus(proposed, max);
-            if (status === 'ok') items.push({ label, status: 'As-of-Right', cls: 'badge-approved' });
-            else if (status === 'variance') items.push({ label, status: 'Minor Variance', cls: 'badge-review' });
-            else if (status === 'rezone') items.push({ label, status: 'Rezoning Required', cls: 'badge-refused' });
-        };
-
-        check('Height', proposal.height, zoning.maxHeight);
-        check('FSI', proposal.fsi, zoning.maxFsi);
-        check('Storeys', proposal.storeys, zoning.maxStoreys);
-        check('Lot Coverage', proposal.lotCoverage, zoning.lotCoverage);
-
-        if (items.length === 0) {
-            items.push({ label: 'Enter proposal values in Overview tab', status: '—', cls: '' });
-        }
-        return items;
-    }, [proposal, zoning]);
-
-    const handleExport = useCallback(() => {
-        const zoneName = zoneDisplay(parcel, zoning);
-        const win = window.open('', '_blank');
-        win.document.write(`
-<html><head><title>Preliminary Entitlement Snapshot — ${parcel.address}</title>
-<style>
-  body { font-family: -apple-system, BlinkMacSystemFont, sans-serif; padding: 40px; color: #1a1a1a; max-width: 800px; margin: 0 auto; }
-  h1 { font-size: 1.5rem; border-bottom: 2px solid #c8a55c; padding-bottom: 8px; }
-  h2 { font-size: 1.1rem; margin-top: 24px; color: #555; }
-  table { width: 100%; border-collapse: collapse; margin: 12px 0; }
-  th, td { text-align: left; padding: 8px 12px; border-bottom: 1px solid #e0e0e0; font-size: 0.9rem; }
-  th { background: #f5f5f5; font-weight: 600; }
-  .badge { padding: 2px 8px; border-radius: 4px; font-size: 0.8rem; font-weight: 600; }
-  .badge-green { background: #dcfce7; color: #166534; }
-  .badge-amber { background: #fef3c7; color: #92400e; }
-  .badge-red   { background: #fee2e2; color: #991b1b; }
-  .footer { margin-top: 40px; font-size: 0.8rem; color: #999; border-top: 1px solid #e0e0e0; padding-top: 12px; }
-</style></head><body>
-<h1>Preliminary Entitlement Snapshot</h1>
-<p><strong>Note:</strong> This export is generated from backend zoning analysis and proposal values entered in the UI. It is an early-stage estimate, not a legal opinion.</p>
-<p><strong>Address:</strong> ${parcel.address} &nbsp; <strong>Zone:</strong> ${zoneName} &nbsp; <strong>By-law Section:</strong> ${zoning.bylawSection || 'Unavailable'}</p>
-<h2>Zoning Constraints</h2>
-<table><tr><th>Parameter</th><th>Permitted</th><th>Proposed</th><th>Status</th></tr>
-${[
-    ['Height', zoning.maxHeight, proposal.height, 'm'],
-    ['FSI', zoning.maxFsi, proposal.fsi, ''],
-    ['Storeys', zoning.maxStoreys, proposal.storeys, ''],
-    ['Lot Coverage', zoning.lotCoverage, proposal.lotCoverage, '%'],
-].map(([label, max, val, unit]) => {
-    const status = complianceStatus(val, max);
-    const badge = !val
-        ? '—'
-        : status === 'ok'
-            ? '<span class="badge badge-green">Compliant</span>'
-            : status === 'variance'
-                ? '<span class="badge badge-amber">Variance</span>'
-                : '<span class="badge badge-red">Rezone</span>';
-    const permitted = max === null || max === undefined ? 'Unavailable' : `${max}${unit}`;
-    return `<tr><td>${label}</td><td>${permitted}</td><td>${val || '—'}${val ? unit : ''}</td><td>${badge}</td></tr>`;
-}).join('')}
-</table>
-<h2>Building Envelope</h2>
-<table><tr><th>Constraint</th><th>Value</th></tr>
-<tr><td>Front Setback</td><td>${formatMetric(zoning.frontSetback, ' m')}</td></tr>
-<tr><td>Interior Side Setback</td><td>${formatMetric(zoning.sideSetback, ' m')}</td></tr>
-<tr><td>Exterior Side Setback</td><td>${formatMetric(zoning.exteriorSideSetback, ' m')}</td></tr>
-<tr><td>Rear Setback</td><td>${formatMetric(zoning.rearSetback, ' m')}</td></tr>
-</table>
-<h2>Required Approvals</h2>
-<table><tr><th>Parameter</th><th>Approval Type</th></tr>
-${approvals.map((approval) => `<tr><td>${approval.label}</td><td>${approval.status}</td></tr>`).join('')}
-</table>
-<div class="footer">Generated by applicationAI · Backend zoning estimate · ${new Date().toLocaleString()}</div>
-</body></html>`);
-        win.document.close();
-        win.print();
-    }, [approvals, parcel, proposal, zoning]);
-
-    return (
-        <>
-            <div className="tab-section-header">
-                <h3>Entitlements & Report</h3>
-                <p className="tab-section-desc">Preliminary approval signal based on your proposal values and backend zoning analysis.</p>
-                <p className="tab-section-desc" style={{ marginTop: 8, opacity: 0.8 }}>
-                    Review notes should be checked before treating any non-compliant item as a simple variance.
-                </p>
-            </div>
-
-            <div className="approvals-list">
-                {approvals.map((approval, idx) => (
-                    <div key={idx} className="approval-row">
-                        <span className="approval-label">{approval.label}</span>
-                        {approval.cls
-                            ? <span className={`precedent-badge ${approval.cls}`}>{approval.status}</span>
-                            : <span className="approval-dash">{approval.status}</span>
-                        }
-                    </div>
-                ))}
-            </div>
-
-            <ReviewNotesCard zoning={zoning} />
-
-            <button className="export-btn" onClick={handleExport}>
-                <svg viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="1.5">
-                    <path d="M21 15v4a2 2 0 0 1-2 2H5a2 2 0 0 1-2-2v-4" />
-                    <polyline points="7 10 12 15 17 10" />
-                    <line x1="12" y1="15" x2="12" y2="3" />
-                </svg>
-                Export Preliminary Entitlement Snapshot
-            </button>
-        </>
     );
 }
 
@@ -1041,19 +831,171 @@ function DocumentsTab({ planId }) {
 
 const TAB_TITLES = {
     overview: 'Project Overview',
-    massing: 'Building Massing',
     finances: 'Financial Analysis',
-    entitlements: 'Entitlements',
     policies: 'Policy Extracts',
     datasets: 'Data Sources',
     precedents: 'Precedents',
     documents: 'Documents',
+    standards: 'Design Standards',
+    network: 'Pipeline Network',
+    inspections: 'Inspection Records',
+    load_analysis: 'Load Analysis',
+    condition: 'Condition Assessment',
 };
 
-const ZONING_TABS = new Set(['overview', 'massing', 'entitlements']);
+const ZONING_TABS = new Set(['overview']);
 
-export default function PolicyPanel({ parcel, isOpen, onClose, activeNav, savedParcels, onSaveParcel, onUploadAnalyzed, activePlanId }) {
-    const [proposal, setProposal] = useState({ height: '', fsi: '', storeys: '', lotCoverage: '' });
+function InfraStandardsTab({ assetType }) {
+    const isPipeline = assetType === 'pipeline';
+    return (
+        <div className="tab-section">
+            <h3 className="section-heading">{isPipeline ? 'Pipeline' : 'Bridge'} Design Standards</h3>
+            <div className="policy-list">
+                {isPipeline ? (
+                    <>
+                        <div className="policy-item">
+                            <span className="policy-badge">CSA</span>
+                            <div className="policy-details">
+                                <div className="policy-title">CSA Z662 — Oil and Gas Pipeline Systems</div>
+                                <div className="policy-desc">Design, construction, operation, and maintenance requirements</div>
+                            </div>
+                        </div>
+                        <div className="policy-item">
+                            <span className="policy-badge">OPSD</span>
+                            <div className="policy-details">
+                                <div className="policy-title">OPSD 802 — Storm Sewer Design</div>
+                                <div className="policy-desc">Ontario Provincial Standard Drawings for storm sewer construction</div>
+                            </div>
+                        </div>
+                        <div className="policy-item">
+                            <span className="policy-badge">OPSD</span>
+                            <div className="policy-details">
+                                <div className="policy-title">OPSD 803 — Sanitary Sewer Design</div>
+                                <div className="policy-desc">Ontario Provincial Standard Drawings for sanitary sewer construction</div>
+                            </div>
+                        </div>
+                        <div className="policy-item">
+                            <span className="policy-badge">ECA</span>
+                            <div className="policy-details">
+                                <div className="policy-title">Environmental Compliance Approval</div>
+                                <div className="policy-desc">MECP approval required for sewage works under Ontario Water Resources Act</div>
+                            </div>
+                        </div>
+                    </>
+                ) : (
+                    <>
+                        <div className="policy-item">
+                            <span className="policy-badge">CSA</span>
+                            <div className="policy-details">
+                                <div className="policy-title">CSA S6 — Canadian Highway Bridge Design Code</div>
+                                <div className="policy-desc">Design requirements for new bridges and rehabilitation of existing bridges</div>
+                            </div>
+                        </div>
+                        <div className="policy-item">
+                            <span className="policy-badge">CHBDC</span>
+                            <div className="policy-details">
+                                <div className="policy-title">CL-625 Design Loading</div>
+                                <div className="policy-desc">Standard truck loading for Ontario highway bridges</div>
+                            </div>
+                        </div>
+                        <div className="policy-item">
+                            <span className="policy-badge">OSIM</span>
+                            <div className="policy-details">
+                                <div className="policy-title">Ontario Structure Inspection Manual</div>
+                                <div className="policy-desc">Inspection procedures and condition rating methodology</div>
+                            </div>
+                        </div>
+                        <div className="policy-item">
+                            <span className="policy-badge">MTO</span>
+                            <div className="policy-details">
+                                <div className="policy-title">MTO Structural Manual</div>
+                                <div className="policy-desc">Ministry of Transportation Ontario design and construction standards</div>
+                            </div>
+                        </div>
+                    </>
+                )}
+            </div>
+        </div>
+    );
+}
+
+function InfraNetworkTab() {
+    return (
+        <div className="tab-section">
+            <h3 className="section-heading">Pipeline Network</h3>
+            <p className="section-description">Select a location on the map to view nearby pipeline infrastructure, including storm sewers, sanitary sewers, water mains, and gas lines.</p>
+            <div className="policy-list">
+                <div className="policy-item">
+                    <span className="policy-badge" style={{ background: 'var(--accent-bg)', color: 'var(--accent)' }}>Storm</span>
+                    <div className="policy-details">
+                        <div className="policy-title">Storm Sewer Network</div>
+                        <div className="policy-desc">Municipal storm drainage system and outfall locations</div>
+                    </div>
+                </div>
+                <div className="policy-item">
+                    <span className="policy-badge" style={{ background: 'rgba(74, 222, 128, 0.12)', color: 'var(--success)' }}>Sanitary</span>
+                    <div className="policy-details">
+                        <div className="policy-title">Sanitary Sewer Network</div>
+                        <div className="policy-desc">Wastewater collection system and treatment plant connections</div>
+                    </div>
+                </div>
+                <div className="policy-item">
+                    <span className="policy-badge" style={{ background: 'rgba(96, 165, 250, 0.12)', color: '#60a5fa' }}>Water</span>
+                    <div className="policy-details">
+                        <div className="policy-title">Water Main Network</div>
+                        <div className="policy-desc">Pressurized water distribution system and hydrant locations</div>
+                    </div>
+                </div>
+            </div>
+        </div>
+    );
+}
+
+function InfraInspectionsTab() {
+    return (
+        <div className="tab-section">
+            <h3 className="section-heading">Inspection Records</h3>
+            <p className="section-description">CCTV inspection records, condition assessments, and maintenance history for nearby pipeline infrastructure.</p>
+            <div className="tab-empty">
+                <p>Search for a location to view inspection records for nearby infrastructure.</p>
+            </div>
+        </div>
+    );
+}
+
+function BridgeLoadAnalysisTab() {
+    return (
+        <div className="tab-section">
+            <h3 className="section-heading">Load Analysis</h3>
+            <p className="section-description">Structural load analysis based on CSA S6 Canadian Highway Bridge Design Code. Includes dead load, live load (CL-625), and environmental loading combinations.</p>
+            <div className="tab-empty">
+                <p>Design a bridge to view load analysis results and structural adequacy checks.</p>
+            </div>
+        </div>
+    );
+}
+
+function BridgeConditionTab() {
+    return (
+        <div className="tab-section">
+            <h3 className="section-heading">Condition Assessment</h3>
+            <p className="section-description">Bridge condition ratings based on OSIM (Ontario Structure Inspection Manual) methodology. Includes BCI (Bridge Condition Index) scoring and rehabilitation priority.</p>
+            <div className="tab-empty">
+                <p>Search for a location to view condition assessments for nearby bridges.</p>
+            </div>
+        </div>
+    );
+}
+
+export default function PolicyPanel({ parcel, isOpen, onClose, activeNav, savedParcels, onSaveParcel, onUploadAnalyzed, activePlanId, assetType }) {
+    const { isResizing, handleProps: resizeHandleProps } = useResizable({
+        defaultSize: 380,
+        minSize: 280,
+        maxSize: 600,
+        axis: 'horizontal',
+        reverse: true,
+        cssVar: '--panel-width',
+    });
     const [policies, setPolicies] = useState([]);
     const [overlays, setOverlays] = useState([]);
     const [zoningAnalysis, setZoningAnalysis] = useState(null);
@@ -1145,28 +1087,35 @@ export default function PolicyPanel({ parcel, isOpen, onClose, activeNav, savedP
 
         switch (activeNav) {
             case 'overview':
-                return <OverviewTab parcel={parcel} zoning={zoning} proposal={proposal} setProposal={setProposal} onUploadComplete={onUploadAnalyzed} />;
-            case 'massing':
-                return <MassingTab zoning={zoning} parcel={parcel} />;
+                return <OverviewTab parcel={parcel} zoning={zoning} onUploadComplete={onUploadAnalyzed} />;
             case 'policies':
                 return <PoliciesTab policies={visiblePolicies} loading={visiblePoliciesLoading} />;
             case 'datasets':
                 return <DatasetsTab overlays={visibleOverlays} loading={visibleOverlaysLoading} />;
             case 'precedents':
                 return <PrecedentsTab parcel={parcel} />;
-            case 'entitlements':
-                return <EntitlementsTab parcel={parcel} zoning={zoning} proposal={proposal} />;
             case 'finances':
                 return <FinancesTab parcel={parcel} />;
             case 'documents':
                 return <DocumentsTab planId={activePlanId} />;
+            case 'standards':
+                return <InfraStandardsTab assetType={assetType || 'pipeline'} />;
+            case 'network':
+                return <InfraNetworkTab />;
+            case 'inspections':
+                return <InfraInspectionsTab />;
+            case 'load_analysis':
+                return <BridgeLoadAnalysisTab />;
+            case 'condition':
+                return <BridgeConditionTab />;
             default:
-                return <OverviewTab parcel={parcel} zoning={zoning} proposal={proposal} setProposal={setProposal} onUploadComplete={onUploadAnalyzed} />;
+                return <OverviewTab parcel={parcel} zoning={zoning} onUploadComplete={onUploadAnalyzed} />;
         }
     };
 
     return (
-        <aside id="policy-panel" className={isOpen ? '' : 'panel-hidden'}>
+        <aside id="policy-panel" className={isOpen ? '' : 'panel-hidden'} style={{ userSelect: isResizing ? 'none' : undefined }}>
+            <div {...resizeHandleProps} style={{ ...resizeHandleProps.style, left: -2 }} />
             <div id="policy-panel-header">
                 <h2 id="policy-panel-title">{TAB_TITLES[activeNav] || 'Project Information'}</h2>
                 <div className="panel-header-actions">

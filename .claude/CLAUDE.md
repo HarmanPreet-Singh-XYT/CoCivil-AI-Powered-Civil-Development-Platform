@@ -28,14 +28,13 @@ app/
                   thin_slice_runtime.py, zoning_service.py
                   submission/ (templates.py, context_builder.py, review.py)
   tasks/          plan.py (main pipeline), ingestion.py (CKAN tasks)
-  worker.py       Celery app
 frontend-react/   React frontend (Vite)
 ```
 
 ## Tech Stack
 
 - **Backend**: FastAPI + SQLAlchemy (async) + PostgreSQL + PostGIS
-- **Queue**: Celery + Redis
+- **Background Tasks**: threading (in-process)
 - **Frontend**: React + Vite
 - **AI**: Claude (primary) or OpenAI (configurable via AI_PROVIDER)
 - **Spatial**: GeoAlchemy2, PostGIS, pyproj
@@ -143,8 +142,6 @@ POST /api/v1/admin/ingest/building-permits
 POST /api/v1/admin/ingest/coa-applications
 GET  /api/v1/admin/ingest/status
 
-# Or via Celery task directly
-celery -A app.worker call app.tasks.ingestion.ingest_toronto_open_data
 ```
 
 ---
@@ -154,9 +151,6 @@ celery -A app.worker call app.tasks.ingestion.ingest_toronto_open_data
 ```bash
 # Backend
 uvicorn app.main:app --reload
-
-# Celery worker
-celery -A app.worker worker --loglevel=info
 
 # Frontend
 cd frontend-react && npm run dev
