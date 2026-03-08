@@ -1,6 +1,9 @@
 import structlog
+from pathlib import Path
 from fastapi import FastAPI
 from fastapi.middleware.cors import CORSMiddleware
+from fastapi.staticfiles import StaticFiles
+from fastapi.responses import FileResponse
 
 from app import __version__
 from app.config import settings
@@ -72,6 +75,15 @@ def create_app() -> FastAPI:
     application.include_router(uploads.router, prefix=prefix, tags=["uploads"])
     application.include_router(ingestion.router, prefix=prefix, tags=["ingestion"])
     application.include_router(design_versions.router, prefix=prefix, tags=["designs"])
+
+    # Serve built React frontend (production only — when frontend-dist exists)
+    frontend_dist = Path(__file__).parent.parent / "frontend-dist"
+    if frontend_dist.exists():
+        application.mount("/assets", StaticFiles(directory=frontend_dist / "assets"), name="assets")
+
+        @application.get("/{full_path:path}", include_in_schema=False)
+        async def serve_spa(full_path: str):
+            return FileResponse(frontend_dist / "index.html")
 
     return application
 

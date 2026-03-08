@@ -1,0 +1,9 @@
+data/
+*.dump
+*.sql
+.env
+frontend-react/node_modules/
+frontend-react/dist/
+__pycache__/
+*.pyc
+.pytest_cache/

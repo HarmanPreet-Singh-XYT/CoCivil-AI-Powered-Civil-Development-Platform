@@ -1,3 +1,12 @@
+# Stage 1: Build React frontend
+FROM node:20-slim AS frontend-builder
+WORKDIR /frontend
+COPY frontend-react/package*.json ./
+RUN npm ci
+COPY frontend-react/ ./
+RUN npm run build
+
+# Stage 2: Build Python backend + embed frontend
 FROM python:3.11-slim
 
 RUN apt-get update && apt-get install -y --no-install-recommends \
@@ -14,6 +23,9 @@ RUN pip install --no-cache-dir .
 
 COPY . .
 RUN pip install --no-cache-dir -e .
+
+# Embed the built frontend
+COPY --from=frontend-builder /frontend/dist /app/frontend-dist
 
 EXPOSE 8000
 
