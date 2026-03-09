@@ -2,13 +2,15 @@
 
 import structlog
 
+from app.celery_app import celery
 from app.database import get_sync_db
 from app.services.geospatial_ingestion import get_or_create_jurisdiction
 
 logger = structlog.get_logger()
 
 
-def ingest_water_mains_task():
+@celery.task(bind=True, max_retries=2)
+def ingest_water_mains_task(self):
     """Ingest water mains from Toronto CKAN Open Data."""
     from app.services.infrastructure_ingestion import ingest_water_mains
 
@@ -29,7 +31,8 @@ def ingest_water_mains_task():
         db.close()
 
 
-def ingest_sanitary_sewers_task():
+@celery.task(bind=True, max_retries=2)
+def ingest_sanitary_sewers_task(self):
     """Ingest sanitary sewers from Toronto CKAN Open Data."""
     from app.services.infrastructure_ingestion import ingest_sanitary_sewers
 
@@ -50,7 +53,8 @@ def ingest_sanitary_sewers_task():
         db.close()
 
 
-def ingest_storm_sewers_task():
+@celery.task(bind=True, max_retries=2)
+def ingest_storm_sewers_task(self):
     """Ingest storm sewers from Toronto CKAN Open Data."""
     from app.services.infrastructure_ingestion import ingest_storm_sewers
 
@@ -71,7 +75,8 @@ def ingest_storm_sewers_task():
         db.close()
 
 
-def ingest_bridges_task():
+@celery.task(bind=True, max_retries=2)
+def ingest_bridges_task(self):
     """Ingest bridge inventory data."""
     from app.services.infrastructure_ingestion import ingest_bridge_inventory
 

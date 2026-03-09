@@ -79,7 +79,7 @@ export default function Sidebar({ isCollapsed, onToggleCollapse, activeNav, onNa
             <div className="sidebar-top">
                 <div className="sidebar-logo">
                     {isCollapsed
-                        ? <span className="logo-collapsed"><span className="logo-accent">Co</span>C</span>
+                        ? <span className="logo-collapsed"><span className="logo-accent">Co</span></span>
                         : <span className="logo-full"><span className="logo-accent">Co</span>Civil</span>
                     }
                 </div>

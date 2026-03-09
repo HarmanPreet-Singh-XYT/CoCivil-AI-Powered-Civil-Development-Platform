@@ -5,6 +5,7 @@ import uuid
 
 import structlog
 
+from app.celery_app import celery
 from app.database import get_sync_db
 from app.models.upload import DocumentPage, UploadedDocument
 
@@ -19,7 +20,8 @@ def _update_status(db, doc, status, error=None):
     db.refresh(doc)
 
 
-def analyze_document(document_id: str):
+@celery.task(bind=True, max_retries=2)
+def analyze_document(self, document_id: str):
     """Process an uploaded document: convert PDF pages, run AI extraction and compliance review.
 
     Pipeline:

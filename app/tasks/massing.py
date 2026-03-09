@@ -1,5 +1,6 @@
 import structlog
 
+from app.celery_app import celery
 from app.database import get_sync_db
 from app.models.simulation import Massing
 from app.services.thin_slice_runtime import (
@@ -10,7 +11,8 @@ from app.services.thin_slice_runtime import (
 logger = structlog.get_logger()
 
 
-def run_massing(job_id: str, scenario_id: str, params: dict | None = None):
+@celery.task(bind=True, max_retries=2)
+def run_massing(self, job_id: str, scenario_id: str, params: dict | None = None):
     """Generate building envelope / massing for a scenario.
 
     TODO: Implement envelope generation algorithm:

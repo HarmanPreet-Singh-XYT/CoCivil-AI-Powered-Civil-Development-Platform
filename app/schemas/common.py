@@ -8,6 +8,7 @@ class HealthResponse(BaseModel):
     status: str
     database: str
     redis: str
+    celery: str = "unknown"
     version: str
 
 

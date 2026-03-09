@@ -4,6 +4,7 @@ from datetime import datetime, timezone
 import structlog
 from sqlalchemy import select
 
+from app.celery_app import celery
 from app.database import get_sync_db
 from app.models.dataset import DatasetLayer
 from app.models.ingestion import SourceSnapshot
@@ -12,7 +13,8 @@ from app.services.geospatial_ingestion import get_or_create_jurisdiction
 logger = structlog.get_logger()
 
 
-def activate_source_snapshot(snapshot_id: str):
+@celery.task(bind=True, max_retries=2)
+def activate_source_snapshot(self, snapshot_id: str):
     db = get_sync_db()
     try:
         snapshot = db.query(SourceSnapshot).filter(SourceSnapshot.id == uuid.UUID(snapshot_id)).one_or_none()
@@ -36,7 +38,8 @@ def activate_source_snapshot(snapshot_id: str):
         db.close()
 
 
-def publish_policy_version(policy_version_id: str, source_snapshot_id: str | None = None):
+@celery.task(bind=True, max_retries=2)
+def publish_policy_version(self, policy_version_id: str, source_snapshot_id: str | None = None):
     db = get_sync_db()
     try:
         version = db.query(PolicyVersion).filter(PolicyVersion.id == uuid.UUID(policy_version_id)).one_or_none()
@@ -66,7 +69,8 @@ def publish_policy_version(policy_version_id: str, source_snapshot_id: str | Non
         db.close()
 
 
-def sync_policy_review_items(policy_version_id: str, review_reason: str = "needs_review_flag"):
+@celery.task(bind=True, max_retries=2)
+def sync_policy_review_items(self, policy_version_id: str, review_reason: str = "needs_review_flag"):
     db = get_sync_db()
     try:
         version_uuid = uuid.UUID(policy_version_id)
@@ -105,7 +109,8 @@ def sync_policy_review_items(policy_version_id: str, review_reason: str = "needs
         db.close()
 
 
-def publish_dataset_layer(dataset_layer_id: str, source_snapshot_id: str | None = None):
+@celery.task(bind=True, max_retries=2)
+def publish_dataset_layer(self, dataset_layer_id: str, source_snapshot_id: str | None = None):
     db = get_sync_db()
     try:
         layer = db.query(DatasetLayer).filter(DatasetLayer.id == uuid.UUID(dataset_layer_id)).one_or_none()
@@ -135,7 +140,8 @@ def publish_dataset_layer(dataset_layer_id: str, source_snapshot_id: str | None 
         db.close()
 
 
-def ingest_building_permits_task():
+@celery.task(bind=True, max_retries=2)
+def ingest_building_permits_task(self):
     """Ingest building permits from Toronto CKAN Open Data."""
     from app.services.ckan_ingestion import ingest_building_permits
 
@@ -156,7 +162,8 @@ def ingest_building_permits_task():
         db.close()
 
 
-def ingest_coa_applications_task():
+@celery.task(bind=True, max_retries=2)
+def ingest_coa_applications_task(self):
     """Ingest COA applications from Toronto CKAN Open Data."""
     from app.services.ckan_ingestion import ingest_coa_applications
 
@@ -177,7 +184,8 @@ def ingest_coa_applications_task():
         db.close()
 
 
-def ingest_toronto_open_data():
+@celery.task(bind=True, max_retries=2)
+def ingest_toronto_open_data(self):
     """Run both building permit and COA ingestion sequentially."""
     from app.services.ckan_ingestion import ingest_building_permits, ingest_coa_applications
 

@@ -3,6 +3,7 @@ from datetime import datetime, timezone
 
 from sqlalchemy import func, or_
 
+from app.celery_app import celery
 from app.database import get_sync_db
 from app.models.entitlement import BuildingPermit, DevelopmentApplication, EntitlementResult, PrecedentMatch, PrecedentSearch
 from app.models.simulation import LayoutRun, Massing
@@ -11,7 +12,8 @@ from app.services.thin_slice_runtime import resolve_project_context
 logger = structlog.get_logger()
 
 
-def run_entitlement_check(job_id: str, scenario_id: str, params: dict | None = None):
+@celery.task(bind=True, max_retries=2)
+def run_entitlement_check(self, job_id: str, scenario_id: str, params: dict | None = None):
     """Run entitlement / compliance check for a scenario.
 
     TODO: Implement entitlement engine:
@@ -94,7 +96,8 @@ def run_entitlement_check(job_id: str, scenario_id: str, params: dict | None = N
         db.close()
 
 
-def run_precedent_search(job_id: str, scenario_id: str, params: dict | None = None):
+@celery.task(bind=True, max_retries=2)
+def run_precedent_search(self, job_id: str, scenario_id: str, params: dict | None = None):
     """Search for comparable precedent development applications.
 
     TODO: Implement precedent retrieval:

@@ -30,5 +30,16 @@ async def health_check():
         logger.error("health.redis_check_failed", error=str(e))
         redis_status = "error"
 
-    status = "healthy" if db_status == "ok" and redis_status == "ok" else "degraded"
-    return HealthResponse(status=status, database=db_status, redis=redis_status, version=__version__)
+    celery_status = "ok"
+    try:
+        from app.celery_app import celery
+        result = celery.control.ping(timeout=2.0)
+        if not result:
+            celery_status = "unavailable"
+    except Exception as e:
+        logger.error("health.celery_check_failed", error=str(e))
+        celery_status = "error"
+
+    all_ok = db_status == "ok" and redis_status == "ok" and celery_status == "ok"
+    status = "healthy" if all_ok else "degraded"
+    return HealthResponse(status=status, database=db_status, redis=redis_status, celery=celery_status, version=__version__)

@@ -4,6 +4,7 @@ from datetime import datetime, timezone
 
 import structlog
 
+from app.celery_app import celery
 from app.database import get_sync_db
 from app.models.plan import DevelopmentPlan, SubmissionDocument
 from app.services.submission.readiness import evaluate_submission_readiness
@@ -194,7 +195,7 @@ SUBMISSION_DOCUMENTS = [
 ]
 
 # Minimum confidence threshold — below this, we pause for user clarification
-CLARIFICATION_CONFIDENCE_THRESHOLD = 0.6
+CLARIFICATION_CONFIDENCE_THRESHOLD = 0.2
 
 
 def _update_plan_status(db, plan, status, step=None, progress_update=None, error=None):
@@ -203,7 +204,7 @@ def _update_plan_status(db, plan, status, step=None, progress_update=None, error
     if step:
         plan.current_step = step
     if progress_update:
-        progress = plan.pipeline_progress or {}
+        progress = dict(plan.pipeline_progress or {})
         progress.update(progress_update)
         plan.pipeline_progress = progress
     if error:
@@ -454,13 +455,28 @@ def _build_context_and_generate_docs(
         provider = None
         generator = None
 
+    total_docs = len(docs_to_generate)
     try:
-        for doc_spec in docs_to_generate:
+        for doc_idx, doc_spec in enumerate(docs_to_generate):
             doc_type = doc_spec["doc_type"]
             content = None
             ai_provider_name = None
             ai_model_name = None
             content_json = None
+
+            # Update plan with per-document progress
+            progress = dict(plan.pipeline_progress or {})
+            progress["_doc_progress"] = {
+                "current_doc": doc_type,
+                "current_doc_title": doc_spec["title"],
+                "completed_docs": doc_idx,
+                "total_docs": total_docs,
+            }
+            plan.pipeline_progress = progress
+            try:
+                db.flush()
+            except Exception:
+                pass
 
             # For compliance_matrix, use deterministic content (no AI)
             if doc_type == "compliance_matrix" and compliance_result:
@@ -613,7 +629,8 @@ def _build_grounded_content(doc_spec: dict, context: dict, preamble: str) -> str
     return "".join(sections)
 
 
-def run_plan_generation(plan_id: str, query: str, auto_run: bool = True, generate_subset: list[str] | None = None):
+@celery.task(bind=True, max_retries=2, soft_time_limit=300, time_limit=600)
+def run_plan_generation(self, plan_id: str, query: str, auto_run: bool = True, generate_subset: list[str] | None = None):
     """Orchestrate the full plan generation pipeline.
 
     Pipeline steps:
@@ -764,8 +781,8 @@ def run_plan_generation(plan_id: str, query: str, auto_run: bool = True, generat
                 logger.info("plan.layout.completed", plan_id=plan_id,
                            total_units=layout_result.get("total_units"))
             except Exception as e:
-                logger.warning("plan.layout.failed", plan_id=plan_id, error=str(e))
-                return _fail_plan(db, plan, "layout_optimization", f"Layout optimization failed: {e}")
+                logger.warning("plan.layout.skipped", plan_id=plan_id, error=str(e))
+                # Layout is non-fatal — continue pipeline without it
 
         _update_plan_status(db, plan, "running_pipeline", step="financial_analysis",
                            progress_update={"layout_optimization": "completed", "financial_analysis": "running"})

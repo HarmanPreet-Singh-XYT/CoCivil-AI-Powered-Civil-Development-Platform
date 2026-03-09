@@ -1,6 +1,5 @@
 """Upload REST endpoints for document upload + AI analysis pipeline."""
 
-import threading
 import uuid
 
 import structlog
@@ -113,7 +112,7 @@ async def upload_document(
 
     from app.tasks.document_analysis import analyze_document
 
-    threading.Thread(target=analyze_document, args=(str(doc_id),), daemon=True).start()
+    analyze_document.delay(str(doc_id))
 
     return UploadResponse(
         id=doc_id,
@@ -291,7 +290,7 @@ async def generate_plan_from_upload(
     doc.plan_id = plan.id
     await db.flush()
 
-    threading.Thread(target=run_plan_generation, args=(str(plan.id), query), daemon=True).start()
+    run_plan_generation.delay(str(plan.id), query)
 
     return {
         "plan_id": plan.id,

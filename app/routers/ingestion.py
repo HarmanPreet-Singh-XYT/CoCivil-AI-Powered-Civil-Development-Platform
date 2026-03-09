@@ -2,7 +2,6 @@
 
 from __future__ import annotations
 
-import threading
 import uuid
 
 import structlog
@@ -28,7 +27,7 @@ async def ingest_building_permits(
     """Trigger building permit ingestion from Toronto CKAN Open Data."""
     from app.tasks.ingestion import ingest_building_permits_task
 
-    threading.Thread(target=ingest_building_permits_task, daemon=True).start()
+    ingest_building_permits_task.delay()
     return {
         "status": "accepted",
         "message": "Building permit ingestion started",
@@ -42,7 +41,7 @@ async def ingest_coa_applications(
     """Trigger Committee of Adjustment application ingestion from Toronto CKAN."""
     from app.tasks.ingestion import ingest_coa_applications_task
 
-    threading.Thread(target=ingest_coa_applications_task, daemon=True).start()
+    ingest_coa_applications_task.delay()
     return {
         "status": "accepted",
         "message": "COA application ingestion started",
@@ -56,7 +55,7 @@ async def ingest_water_mains(
     """Trigger water main ingestion from Toronto CKAN Open Data."""
     from app.tasks.infrastructure_ingestion import ingest_water_mains_task
 
-    threading.Thread(target=ingest_water_mains_task, daemon=True).start()
+    ingest_water_mains_task.delay()
     return {
         "status": "accepted",
         "message": "Water main ingestion started",
@@ -70,7 +69,7 @@ async def ingest_sanitary_sewers(
     """Trigger sanitary sewer ingestion from Toronto CKAN Open Data."""
     from app.tasks.infrastructure_ingestion import ingest_sanitary_sewers_task
 
-    threading.Thread(target=ingest_sanitary_sewers_task, daemon=True).start()
+    ingest_sanitary_sewers_task.delay()
     return {
         "status": "accepted",
         "message": "Sanitary sewer ingestion started",
@@ -84,7 +83,7 @@ async def ingest_storm_sewers(
     """Trigger storm sewer ingestion from Toronto CKAN Open Data."""
     from app.tasks.infrastructure_ingestion import ingest_storm_sewers_task
 
-    threading.Thread(target=ingest_storm_sewers_task, daemon=True).start()
+    ingest_storm_sewers_task.delay()
     return {
         "status": "accepted",
         "message": "Storm sewer ingestion started",
@@ -98,7 +97,7 @@ async def ingest_bridges(
     """Trigger bridge inventory ingestion."""
     from app.tasks.infrastructure_ingestion import ingest_bridges_task
 
-    threading.Thread(target=ingest_bridges_task, daemon=True).start()
+    ingest_bridges_task.delay()
     return {
         "status": "accepted",
         "message": "Bridge inventory ingestion started",

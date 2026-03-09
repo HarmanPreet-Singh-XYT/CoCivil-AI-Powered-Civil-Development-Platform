@@ -1,4 +1,3 @@
-import threading
 import uuid
 
 from fastapi import APIRouter, Depends, HTTPException, status
@@ -43,15 +42,11 @@ async def create_export(
     await db.refresh(export)
     await db.commit()
 
-    threading.Thread(
-        target=run_export,
-        args=(
-            str(export.id),
-            str(body.project_id),
-            {"export_type": body.export_type, "source_controls": body.source_controls or []},
-        ),
-        daemon=True,
-    ).start()
+    run_export.delay(
+        str(export.id),
+        str(body.project_id),
+        {"export_type": body.export_type, "source_controls": body.source_controls or []},
+    )
 
     response = JobAccepted(
         job_id=export.id,

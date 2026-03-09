@@ -1,5 +1,4 @@
 import logging
-import threading
 import uuid
 
 import httpx
@@ -9,7 +8,7 @@ from sqlalchemy.ext.asyncio import AsyncSession
 from sqlalchemy.orm import selectinload
 
 from app.config import settings
-from app.dependencies import get_current_user, get_db_session
+from app.dependencies import get_current_user, get_db_session, get_optional_user
 from app.models.plan import DevelopmentPlan, SubmissionDocument
 from app.schemas.common import JobAccepted
 from app.schemas.plan import (
@@ -39,7 +38,7 @@ router = APIRouter()
 async def generate_plan(
     body: PlanGenerateRequest,
     db: AsyncSession = Depends(get_db_session),
-    user: dict = Depends(get_current_user),
+    user: dict | None = Depends(get_optional_user),
 ):
     """Submit a natural language development query to generate a full plan.
 
@@ -53,9 +52,11 @@ async def generate_plan(
     7. Search for precedent applications
     8. Generate government submission documents
     """
+    org_id = user["organization_id"] if user else None
+    created_by = user["id"] if user else None
     plan = DevelopmentPlan(
-        organization_id=user["organization_id"],
-        created_by=user["id"],
+        organization_id=org_id,
+        created_by=created_by,
         original_query=body.query,
         status="pending",
     )
@@ -64,11 +65,7 @@ async def generate_plan(
     await db.refresh(plan)
     await db.commit()
 
-    threading.Thread(
-        target=run_plan_generation,
-        args=(str(plan.id), body.query, body.auto_run, body.generate_subset),
-        daemon=True,
-    ).start()
+    run_plan_generation.delay(str(plan.id), body.query, body.auto_run, body.generate_subset)
 
     return JobAccepted(
         job_id=plan.id,
@@ -94,16 +91,12 @@ async def list_plans(
 async def get_plan(
     plan_id: uuid.UUID,
     db: AsyncSession = Depends(get_db_session),
-    user: dict = Depends(get_current_user),
+    user: dict | None = Depends(get_optional_user),
 ):
-    result = await db.execute(
-        select(DevelopmentPlan)
-        .options(selectinload(DevelopmentPlan.documents))
-        .where(
-            DevelopmentPlan.id == plan_id,
-            DevelopmentPlan.organization_id == user["organization_id"],
-        )
-    )
+    query = select(DevelopmentPlan).options(selectinload(DevelopmentPlan.documents)).where(DevelopmentPlan.id == plan_id)
+    if user:
+        query = query.where(DevelopmentPlan.organization_id == user["organization_id"])
+    result = await db.execute(query)
     plan = result.scalar_one_or_none()
     if not plan:
         raise HTTPException(status_code=404, detail="Plan not found")
@@ -162,11 +155,7 @@ async def clarify_plan(
     await db.commit()
 
     # Resume pipeline
-    threading.Thread(
-        target=run_plan_generation,
-        args=(str(plan.id), plan.original_query, True),
-        daemon=True,
-    ).start()
+    run_plan_generation.delay(str(plan.id), plan.original_query, True)
 
     return plan
 
@@ -175,17 +164,16 @@ async def clarify_plan(
 async def list_plan_documents(
     plan_id: uuid.UUID,
     db: AsyncSession = Depends(get_db_session),
-    user: dict = Depends(get_current_user),
+    user: dict | None = Depends(get_optional_user),
 ):
-    result = await db.execute(
+    query = (
         select(SubmissionDocument)
         .join(DevelopmentPlan)
-        .where(
-            SubmissionDocument.plan_id == plan_id,
-            DevelopmentPlan.organization_id == user["organization_id"],
-        )
-        .order_by(SubmissionDocument.sort_order)
+        .where(SubmissionDocument.plan_id == plan_id)
     )
+    if user:
+        query = query.where(DevelopmentPlan.organization_id == user["organization_id"])
+    result = await db.execute(query.order_by(SubmissionDocument.sort_order))
     return result.scalars().all()
 
 
@@ -601,20 +589,20 @@ async def get_contractor_recommendations(
     lat: float = Query(..., description="Latitude for nearby search"),
     lng: float = Query(..., description="Longitude for nearby search"),
     db: AsyncSession = Depends(get_db_session),
-    user: dict = Depends(get_current_user),
+    user: dict | None = Depends(get_optional_user),
 ):
     """Recommend local contractors based on plan outputs."""
     if not settings.GOOGLE_PLACES_API_KEY:
         return ContractorRecommendationsResponse(contractors=[])
 
-    result = await db.execute(
+    query = (
         select(DevelopmentPlan)
         .options(selectinload(DevelopmentPlan.documents))
-        .where(
-            DevelopmentPlan.id == plan_id,
-            DevelopmentPlan.organization_id == user["organization_id"],
-        )
+        .where(DevelopmentPlan.id == plan_id)
     )
+    if user:
+        query = query.where(DevelopmentPlan.organization_id == user["organization_id"])
+    result = await db.execute(query)
     plan = result.scalar_one_or_none()
     if not plan:
         raise HTTPException(status_code=404, detail="Plan not found")

@@ -1,6 +1,7 @@
 import structlog
 import uuid
 
+from app.celery_app import celery
 from app.database import get_sync_db
 from app.models.export import ExportJob
 from app.services.governance import evaluate_export_controls
@@ -8,7 +9,8 @@ from app.services.governance import evaluate_export_controls
 logger = structlog.get_logger()
 
 
-def run_export(job_id: str, project_id: str, params: dict | None = None):
+@celery.task(bind=True, max_retries=2)
+def run_export(self, job_id: str, project_id: str, params: dict | None = None):
     """Generate an export package (PDF, CSV, spreadsheet, 3D).
 
     TODO: Implement export generation:

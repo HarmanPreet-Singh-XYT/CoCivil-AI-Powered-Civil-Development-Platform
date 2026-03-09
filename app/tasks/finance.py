@@ -1,6 +1,7 @@
 import structlog
 import uuid
 
+from app.celery_app import celery
 from app.database import get_sync_db
 from app.models.finance import FinancialRun
 from app.models.simulation import LayoutRun, Massing
@@ -13,7 +14,8 @@ from app.services.thin_slice_runtime import (
 logger = structlog.get_logger()
 
 
-def run_financial_analysis(job_id: str, scenario_id: str, params: dict | None = None):
+@celery.task(bind=True, max_retries=2)
+def run_financial_analysis(self, job_id: str, scenario_id: str, params: dict | None = None):
     """Run financial pro forma analysis for a scenario.
 
     TODO: Implement pro forma engine:

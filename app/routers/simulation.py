@@ -1,4 +1,3 @@
-import threading
 import uuid
 from typing import Any
 
@@ -94,11 +93,7 @@ async def create_massing(
     await db.refresh(massing)
     await db.commit()
 
-    threading.Thread(
-        target=run_massing,
-        args=(str(massing.id), str(scenario_id), body.parameters),
-        daemon=True,
-    ).start()
+    run_massing.delay(str(massing.id), str(scenario_id), body.parameters)
 
     response = JobAccepted(
         job_id=massing.id,
@@ -197,11 +192,7 @@ async def create_layout_run(
     await db.refresh(layout)
     await db.commit()
 
-    threading.Thread(
-        target=run_layout,
-        args=(str(layout.id), str(massing_id), task_params),
-        daemon=True,
-    ).start()
+    run_layout.delay(str(layout.id), str(massing_id), task_params)
 
     response = JobAccepted(
         job_id=layout.id,

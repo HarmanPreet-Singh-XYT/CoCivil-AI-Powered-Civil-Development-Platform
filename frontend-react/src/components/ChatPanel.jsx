@@ -76,6 +76,7 @@ export default function ChatPanel({ parcelContext, onPlanComplete, onToggleExpan
     const [isTyping, setIsTyping] = useState(false);
     const [isDragOver, setIsDragOver] = useState(false);
     const [uploadProgress, setUploadProgress] = useState(null);
+    const [planProgress, setPlanProgress] = useState(null);
     const [latestAnalyzedUpload, setLatestAnalyzedUpload] = useState(null);
 
     const conversationHistoryRef = useRef([]);
@@ -91,16 +92,16 @@ export default function ChatPanel({ parcelContext, onPlanComplete, onToggleExpan
     }, []);
 
     useEffect(() => {
+        onToggleExpand?.(isExpanded);
+    }, [isExpanded, onToggleExpand]);
+
+    useEffect(() => {
         scrollToBottom();
     }, [messages, isTyping, scrollToBottom]);
 
     const handleToggle = useCallback(() => {
-        setIsExpanded((prev) => {
-            const next = !prev;
-            onToggleExpand?.(next);
-            return next;
-        });
-    }, [onToggleExpand]);
+        setIsExpanded((prev) => !prev);
+    }, []);
 
     const cancelPlanPoll = useCallback(() => {
         planPollControllerRef.current?.abort();
@@ -117,12 +118,25 @@ export default function ChatPanel({ parcelContext, onPlanComplete, onToggleExpan
         cancelUploadPoll();
     }, [cancelPlanPoll, cancelUploadPoll]);
 
+    const STEP_LABELS = {
+        query_parsing: 'Parsing query',
+        parcel_lookup: 'Looking up parcel',
+        policy_resolution: 'Resolving policies & zoning',
+        massing_generation: 'Generating massing',
+        layout_optimization: 'Optimizing layout',
+        financial_analysis: 'Running financial analysis',
+        entitlement_check: 'Checking compliance',
+        precedent_search: 'Searching precedents',
+        document_generation: 'Generating documents',
+    };
+    const STEP_ORDER = Object.keys(STEP_LABELS);
+
     const pollPlan = useCallback(async (planId) => {
         cancelPlanPoll();
         const controller = new AbortController();
         const { signal } = controller;
         planPollControllerRef.current = controller;
-        const maxAttempts = 30;
+        const maxAttempts = 120;
 
         try {
             for (let i = 0; i < maxAttempts; i++) {
@@ -130,7 +144,27 @@ export default function ChatPanel({ parcelContext, onPlanComplete, onToggleExpan
                 const plan = await getPlan(planId, { signal });
                 if (signal.aborted) return;
 
+                // Update progress
+                if (plan.status === 'running_pipeline' && plan.current_step) {
+                    const completedCount = plan.pipeline_progress
+                        ? Object.keys(plan.pipeline_progress).filter((k) => k !== '_doc_progress' && plan.pipeline_progress[k] === 'completed').length
+                        : 0;
+                    const pct = Math.round((completedCount / STEP_ORDER.length) * 100);
+                    const docProgress = plan.pipeline_progress?._doc_progress;
+                    let stepLabel = STEP_LABELS[plan.current_step] || plan.current_step;
+                    if (plan.current_step === 'document_generation' && docProgress) {
+                        stepLabel = `Generating ${docProgress.current_doc_title} (${docProgress.completed_docs + 1}/${docProgress.total_docs})`;
+                    }
+                    setPlanProgress({
+                        step: stepLabel,
+                        pct,
+                        completedCount,
+                        totalSteps: STEP_ORDER.length,
+                    });
+                }
+
                 if (plan.status === 'completed' || plan.status === 'done') {
+                    setPlanProgress(null);
                     const docs = await getPlanDocuments(planId, { signal });
                     if (signal.aborted) return;
                     const docList = docs.length > 0
@@ -153,6 +187,7 @@ export default function ChatPanel({ parcelContext, onPlanComplete, onToggleExpan
                     return;
                 }
                 if (plan.status === 'failed' || plan.status === 'error') {
+                    setPlanProgress(null);
                     setMessages((prev) => [...prev, {
                         role: 'assistant',
                         text: `Plan generation failed. ${plan.error_message || 'Please try again.'}`,
@@ -160,6 +195,7 @@ export default function ChatPanel({ parcelContext, onPlanComplete, onToggleExpan
                     return;
                 }
                 if (plan.status === 'needs_clarification') {
+                    setPlanProgress(null);
                     const questions = plan.clarification_questions || [];
                     setMessages((prev) => [...prev, {
                         role: 'assistant',
@@ -174,6 +210,7 @@ export default function ChatPanel({ parcelContext, onPlanComplete, onToggleExpan
             }
             return;
         } finally {
+            setPlanProgress(null);
             if (planPollControllerRef.current === controller) {
                 planPollControllerRef.current = null;
             }
@@ -341,6 +378,46 @@ export default function ChatPanel({ parcelContext, onPlanComplete, onToggleExpan
                 setIsTyping(false);
             }
             return;
+        }
+
+        if (command.type === 'generate_report') {
+            const addr = parcelContext?.address || parcelContext?.fullAddress || parcelContext?.addr;
+            const zone = parcelContext?.zoneCode || parcelContext?.zone_code || parcelContext?.zoning;
+            if (!parcelContext || (!addr && !zone)) {
+                setMessages((prev) => [...prev, {
+                    role: 'assistant',
+                    text: 'Please search for a property first so I know which parcel to generate the report for.',
+                }]);
+                setIsTyping(false);
+                return;
+            }
+            // Build a detailed, specific query so the AI parser doesn't ask for clarification
+            const lotArea = parcelContext?.lotArea;
+            const reportQuery = [
+                `I want to build a mixed-use development at ${addr}, Toronto, Ontario.`,
+                zone ? `The site is zoned ${zone}.` : '',
+                lotArea ? `Lot area is ${lotArea} m².` : '',
+                'Generate the full due diligence submission package including planning rationale,',
+                'compliance matrix, massing summary, financial feasibility, precedent report,',
+                'and all applicable documents.',
+            ].filter(Boolean).join(' ');
+            try {
+                const result = await generatePlan(reportQuery, ["cover_letter"]);
+                setMessages((prev) => [...prev, {
+                    role: 'assistant',
+                    text: `Report generation started for <strong>${addr}</strong>. I'll update you as each step completes...`,
+                }]);
+                setIsTyping(false);
+                pollPlan(result.job_id);
+                return;
+            } catch (err) {
+                setMessages((prev) => [...prev, {
+                    role: 'assistant',
+                    text: planStartErrorMessage(err),
+                }]);
+                setIsTyping(false);
+                return;
+            }
         }
 
         // All other messages go to the AI — it decides whether to answer, propose generation, or update the model
@@ -553,7 +630,7 @@ export default function ChatPanel({ parcelContext, onPlanComplete, onToggleExpan
                         <div key={idx} className={`chat-message ${msg.role}`}>
                             <div className="message-avatar">{msg.role === 'assistant' ? 'AI' : 'You'}</div>
                             <div className="message-content">
-                                <p style={{ whiteSpace: 'pre-wrap', margin: 0 }}>{msg.text}</p>
+                                <div className="extract-markdown" style={{ margin: 0 }} dangerouslySetInnerHTML={{ __html: msg.text }} />
                                 {msg.contractors?.length > 0 && (
                                     <ContractorCards contractors={msg.contractors} />
                                 )}
@@ -574,6 +651,22 @@ export default function ChatPanel({ parcelContext, onPlanComplete, onToggleExpan
                             </div>
                         </div>
                     ))}
+                    {planProgress && (
+                        <div className="chat-message assistant">
+                            <div className="message-avatar">AI</div>
+                            <div className="message-content">
+                                <div className="plan-progress">
+                                    <div className="plan-progress-header">
+                                        <div className="upload-spinner"></div>
+                                        <span>{planProgress.step}... ({planProgress.completedCount}/{planProgress.totalSteps})</span>
+                                    </div>
+                                    <div className="plan-progress-bar">
+                                        <div className="plan-progress-fill" style={{ width: `${planProgress.pct}%` }} />
+                                    </div>
+                                </div>
+                            </div>
+                        </div>
+                    )}
                     {uploadProgress && (
                         <div className="chat-message assistant">
                             <div className="message-avatar">AI</div>
