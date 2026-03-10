@@ -7,8 +7,11 @@ All coordinates output in metres, centred at origin.
 
 from __future__ import annotations
 
+import logging
 import math
 from dataclasses import dataclass, field
+
+logger = logging.getLogger(__name__)
 
 
 @dataclass
@@ -104,7 +107,7 @@ def _get_block_attribs(entity) -> dict[str, str]:
             if tag and val:
                 attribs[tag] = val
     except Exception:
-        pass
+        logger.debug("Failed to read block attributes from entity on layer %s", getattr(entity.dxf, "layer", "?"))
     return attribs
 
 
@@ -115,7 +118,7 @@ def _get_polyline_points(entity) -> list[tuple[float, float]]:
         if hasattr(entity, "vertices"):
             return [(v.dxf.location.x, v.dxf.location.y) for v in entity.vertices]
     except Exception:
-        pass
+        logger.debug("Failed to extract polyline points from entity on layer %s", getattr(entity.dxf, "layer", "?"))
     return []
 
 
@@ -148,19 +151,12 @@ def parse_pipeline_dxf(file_bytes: bytes) -> dict:
             "summary": {"total_length_m": float, "pipe_count": int, ...}
         }
     """
-    import os
-    import tempfile
+    import io
 
     import ezdxf
 
-    with tempfile.NamedTemporaryFile(suffix=".dxf", delete=False) as tmp:
-        tmp.write(file_bytes)
-        tmp_path = tmp.name
-
-    try:
-        doc = ezdxf.readfile(tmp_path)
-    finally:
-        os.unlink(tmp_path)
+    stream = io.BytesIO(file_bytes)
+    doc = ezdxf.read(stream)
 
     msp = doc.modelspace()
 
@@ -185,8 +181,8 @@ def parse_pipeline_dxf(file_bytes: bytes) -> dict:
                 pipe_type=pipe_type,
             ))
 
-        # ── Pipes: LWPOLYLINE on pipe layers ──
-        elif dxftype == "LWPOLYLINE" and _is_pipe_layer(layer):
+        # ── Pipes: LWPOLYLINE / POLYLINE on pipe layers ──
+        elif dxftype in ("LWPOLYLINE", "POLYLINE") and _is_pipe_layer(layer):
             pts = _get_polyline_points(entity)
             pipe_type = _classify_pipe_type(layer)
             for i in range(len(pts) - 1):
@@ -244,8 +240,8 @@ def parse_pipeline_dxf(file_bytes: bytes) -> dict:
                     fit_type = "elbow"
                 fittings.append(FittingNode(position=pos, type=fit_type))
 
-        # ── Manholes: LWPOLYLINE (closed) on manhole layers — treat centroid as manhole ──
-        elif dxftype == "LWPOLYLINE" and _is_manhole_layer(layer):
+        # ── Manholes: LWPOLYLINE/POLYLINE (closed) on manhole layers — treat centroid as manhole ──
+        elif dxftype in ("LWPOLYLINE", "POLYLINE") and _is_manhole_layer(layer):
             pts = _get_polyline_points(entity)
             if len(pts) >= 3:
                 cx = sum(p[0] for p in pts) / len(pts)
