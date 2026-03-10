@@ -50,6 +50,23 @@ ADDRESS_GEOMETRY_FIELDS = ("geometry", "GEOMETRY", "geom", "GEOM", "wkt", "WKT")
 
 ZONING_CODE_FIELDS = ("ZN_STRING", "zone_code", "ZONE_CODE", "zone", "ZONE", "label", "LABEL", "ZN_ZONE", "GEN_ZONE")
 
+# ---------------------------------------------------------------------------
+# Water mains constants
+# ---------------------------------------------------------------------------
+
+WATER_MAIN_MATERIAL_ALIASES: dict[str, str] = {
+    "DI": "DI", "DUCTILE IRON": "DI", "DUCTILEIRON": "DI", "DUCTILE_IRON": "DI",
+    "PVC": "PVC", "POLYVINYL": "PVC", "POLYVINYL CHLORIDE": "PVC",
+    "HDPE": "HDPE", "POLYETHYLENE": "HDPE", "PE": "HDPE",
+    "AC": "AC", "ASBESTOS": "AC", "ASBESTOS CEMENT": "AC", "ASBESTOS_CEMENT": "AC",
+    "STEEL": "STEEL", "ST": "STEEL",
+    "RCP": "RCP", "CONCRETE": "RCP", "RC": "RCP", "REINFORCED CONCRETE": "RCP",
+    "CSP": "CSP", "CORRUGATED STEEL": "CSP",
+    "CI": "CI", "CAST IRON": "CI", "CASTIRON": "CI",
+}
+
+WATER_MAIN_VALID_STATUSES = {"ACTIVE", "ABANDONED", "PROPOSED", "UNKNOWN"}
+
 
 @dataclass
 class IngestionSummary:
@@ -207,6 +224,11 @@ def geojson_to_wkt(geometry: dict[str, Any]) -> str:
             for polygon in coords
         )
         return f"MULTIPOLYGON ({polygons})"
+    if geom_type == "LineString":
+        return f"LINESTRING ({_coords_to_wkt(coords)})"
+    if geom_type == "MultiLineString":
+        lines = ", ".join(f"({_coords_to_wkt(line)})" for line in coords)
+        return f"MULTILINESTRING ({lines})"
     raise ValueError(f"Unsupported geometry type: {geom_type}")
 
 
@@ -243,6 +265,87 @@ def _read_csv(path: Path) -> list[dict[str, Any]]:
     with path.open(newline="") as handle:
         return list(csv.DictReader(handle))
 
+
+# ---------------------------------------------------------------------------
+# Water mains helpers
+# ---------------------------------------------------------------------------
+
+def _normalise_water_main_material(raw: str | None) -> str:
+    if not raw:
+        return "UNKNOWN"
+    return WATER_MAIN_MATERIAL_ALIASES.get(str(raw).strip().upper(), "UNKNOWN")
+
+
+def _normalise_water_main_status(raw: str | None) -> str:
+    if not raw:
+        return "UNKNOWN"
+    upper = str(raw).strip().upper()
+    return upper if upper in WATER_MAIN_VALID_STATUSES else "UNKNOWN"
+
+
+def _pick_water_main(*keys: str, props: dict) -> Any:
+    """Variant-aware pick for water main property names."""
+    for key in keys:
+        for variant in (key, key.upper(), key.lower()):
+            val = props.get(variant)
+            if val is not None and val != "":
+                return val
+    return None
+
+
+def _extract_water_main_properties(props: dict) -> dict[str, Any]:
+    """Normalise raw Toronto Open Data water main properties into a clean dict."""
+    raw_diameter = _pick_water_main("DIAMETER", "DIA_MM", "PIPE_DIA", "diameter", props=props)
+    try:
+        diameter_mm = int(float(raw_diameter)) if raw_diameter else None
+    except (ValueError, TypeError):
+        diameter_mm = None
+
+    raw_year = _pick_water_main("INSTALL_YR", "INSTAL_YR", "YEAR_INST", "install_year", props=props)
+    try:
+        install_year = int(float(raw_year)) if raw_year else None
+        if install_year and not (1800 <= install_year <= 2100):
+            install_year = None
+    except (ValueError, TypeError):
+        install_year = None
+
+    raw_length = _pick_water_main("Shape_Length", "SHAPE_LENGTH", "LENGTH_M", "length_m", props=props)
+    try:
+        length_m = round(float(raw_length), 3) if raw_length else None
+    except (ValueError, TypeError):
+        length_m = None
+
+    return {
+        "source_id": str(_pick_water_main("OBJECTID", "WATMAIN_ID", "FID", props=props) or ""),
+        "watmain_id": str(_pick_water_main("WATMAIN_ID", "WATMAINID", props=props) or ""),
+        "material": _normalise_water_main_material(
+            _pick_water_main("MATERIAL", "PIPE_MAT", "MAT_CODE", props=props)
+        ),
+        "material_raw": str(_pick_water_main("MATERIAL", "PIPE_MAT", "MAT_CODE", props=props) or ""),
+        "diameter_mm": diameter_mm,
+        "install_year": install_year,
+        "pressure_zone": str(_pick_water_main("PRESSURE_ZONE", "PRES_ZONE", props=props) or ""),
+        "status": _normalise_water_main_status(_pick_water_main("STATUS", props=props)),
+        "length_m": length_m,
+    }
+
+
+def _is_valid_water_main_geometry(geom: dict | None) -> bool:
+    """Accept LineString and MultiLineString geometries with at least 2 coords."""
+    if not geom:
+        return False
+    geom_type = geom.get("type", "")
+    coords = geom.get("coordinates", [])
+    if geom_type == "LineString":
+        return len(coords) >= 2
+    if geom_type == "MultiLineString":
+        return any(len(line) >= 2 for line in coords)
+    return False
+
+
+# ---------------------------------------------------------------------------
+# Shared infrastructure helpers
+# ---------------------------------------------------------------------------
 
 def get_or_create_jurisdiction(
     db: Session,
@@ -1156,6 +1259,135 @@ def ingest_development_applications(
     except Exception as exc:
         summary.failed += 1
         summary.issues.append({"reason": "exception", "detail": str(exc)})
+        _finalize_job(job, summary, error=str(exc))
+        raise
+
+    db.commit()
+    return snapshot, job
+
+
+def ingest_water_mains_geojson(
+    db: Session,
+    *,
+    jurisdiction_id: uuid.UUID,
+    geojson_path: Path,
+    version_label: str,
+    source_url: str,
+    publisher: str | None = None,
+    layer_name: str = "Toronto Water Mains",
+    batch_size: int = 1000,
+    active_only: bool = True,
+) -> tuple[SourceSnapshot, IngestionJob]:
+    """Ingest a Toronto water mains GeoJSON file.
+
+    Streams features via ijson (if available) and batch-inserts DatasetFeature
+    rows into the existing overlay layer structure, consistent with the other
+    ingest_* functions in this module.
+
+    Args:
+        db:             SQLAlchemy sync session.
+        jurisdiction_id: UUID of the Toronto jurisdiction record.
+        geojson_path:   Path to the GeoJSON file.
+        version_label:  Version label for the SourceSnapshot.
+        source_url:     Source URL for lineage tracking.
+        publisher:      Publisher name (e.g. "City of Toronto").
+        layer_name:     Display name for the DatasetLayer record.
+        batch_size:     ORM objects to accumulate before flushing to the DB.
+        active_only:    When True, features with STATUS not in
+                        {ACTIVE, UNKNOWN} are silently skipped.
+
+    Returns:
+        (SourceSnapshot, IngestionJob) — same pattern as all other ingest_*
+        functions in this module.
+    """
+    snapshot = create_snapshot(
+        db,
+        jurisdiction_id=jurisdiction_id,
+        snapshot_type="water_main",
+        version_label=version_label,
+        source_url=source_url,
+        publisher=publisher,
+        file_hash=_sha256_file(geojson_path),
+        schema_version="geojson-feature-collection",
+    )
+    job = create_ingestion_job(
+        db,
+        jurisdiction_id=jurisdiction_id,
+        source_url=source_url,
+        source_snapshot_id=snapshot.id,
+        job_type="water_main",
+    )
+    layer = DatasetLayer(
+        jurisdiction_id=jurisdiction_id,
+        source_snapshot_id=snapshot.id,
+        name=layer_name,
+        layer_type="water_main",
+        source_url=source_url,
+        publisher=publisher,
+        acquired_at=_now(),
+        source_schema_version="geojson-feature-collection",
+        last_refreshed=_now(),
+        published_at=None,
+    )
+    db.add(layer)
+    db.flush()
+
+    summary = IngestionSummary(issues=[])
+    batch: list[DatasetFeature] = []
+    skipped_geometry = 0
+    skipped_status = 0
+
+    def _flush_batch() -> None:
+        if batch:
+            for obj in batch:
+                db.add(obj)
+            db.flush()
+            batch.clear()
+
+    try:
+        for index, feature in enumerate(_iter_geojson_features(geojson_path)):
+            geom = feature.get("geometry") or {}
+            props = feature.get("properties") or {}
+
+            if not _is_valid_water_main_geometry(geom):
+                skipped_geometry += 1
+                summary.failed += 1
+                _append_issue(summary, {"row": index, "reason": "invalid_geometry"})
+                continue
+
+            clean_props = _extract_water_main_properties(props)
+
+            if active_only and clean_props["status"] not in ("ACTIVE", "UNKNOWN"):
+                skipped_status += 1
+                continue
+
+            dataset_feature = DatasetFeature(
+                dataset_layer_id=layer.id,
+                source_record_id=clean_props["source_id"] or str(index),
+                geom=WKTElement(geojson_to_wkt(geom), srid=4326),
+                attributes_json=clean_props,
+            )
+            batch.append(dataset_feature)
+            summary.processed += 1
+
+            if len(batch) >= batch_size:
+                _flush_batch()
+                print(f"\r  Ingested {summary.processed:,} water main segments...", end="", flush=True)
+
+        _flush_batch()
+        print(f"\r  Ingested {summary.processed:,} water main segments.    ")
+
+        if skipped_geometry:
+            print(f"  Skipped {skipped_geometry:,} features with invalid/missing geometry")
+        if skipped_status:
+            print(f"  Skipped {skipped_status:,} non-active features (abandoned/proposed)")
+
+        layer.published_at = _now()
+        publish_snapshot(db, snapshot, validation_summary=summary.as_json())
+        _finalize_job(job, summary)
+    except Exception as exc:
+        summary.failed += 1
+        _append_issue(summary, {"reason": "exception", "detail": str(exc)})
         _finalize_job(job, summary, error=str(exc))
         raise
 
