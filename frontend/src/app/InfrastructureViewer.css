@@ -1,0 +1,324 @@
+/* ── Infrastructure Viewer ─────────────────────────────────────────────────── */
+
+.infra-viewer-overlay {
+  position: fixed;
+  inset: 0;
+  z-index: 5;
+  background: #111;
+}
+
+.infra-canvas-area {
+  overflow: hidden;
+}
+
+.infra-controls {
+  display: flex;
+  align-items: center;
+  gap: 12px;
+  padding: 8px 16px;
+  background: var(--bg-primary);
+  border-top: 1px solid var(--bg-tertiary);
+  flex-shrink: 0;
+  flex-direction: column;
+  gap: 0;
+}
+
+.infra-controls-row {
+  display: flex;
+  align-items: center;
+  gap: 12px;
+  padding: 8px 16px;
+  width: 100%;
+}
+
+.infra-view-toggle {
+  display: flex;
+  gap: 2px;
+}
+
+.infra-view-toggle .model-ctrl-btn.active {
+  background: var(--accent);
+  color: #111;
+  border-color: var(--accent);
+}
+
+.infra-info {
+  font-size: var(--font-sm);
+  color: var(--text-muted);
+  margin-left: auto;
+}
+
+.infra-edit-toggle {
+  display: flex;
+  align-items: center;
+  gap: 6px;
+  font-size: var(--font-sm);
+  color: var(--text-secondary);
+}
+
+.infra-edit-toggle input[type="checkbox"] {
+  accent-color: var(--accent);
+}
+
+/* ── Profile View (longitudinal) ──────────────────────────────────────────── */
+
+.profile-view {
+  width: 100%;
+  height: 100%;
+  background: var(--bg-primary);
+  position: relative;
+}
+
+.profile-canvas {
+  width: 100%;
+  height: 100%;
+}
+
+.profile-legend {
+  position: absolute;
+  top: 12px;
+  right: 12px;
+  background: var(--bg-glass);
+  border: 1px solid var(--border);
+  border-radius: var(--radius-sm);
+  padding: 8px 12px;
+  font-size: var(--font-xs);
+  color: var(--text-secondary);
+}
+
+.profile-legend-item {
+  display: flex;
+  align-items: center;
+  gap: 6px;
+  margin-bottom: 4px;
+}
+
+.profile-legend-swatch {
+  width: 12px;
+  height: 3px;
+  border-radius: 1px;
+}
+
+/* ── Cross Section View ───────────────────────────────────────────────────── */
+
+.cross-section-view {
+  width: 100%;
+  height: 100%;
+  background: var(--bg-primary);
+  position: relative;
+}
+
+.cross-section-canvas {
+  width: 100%;
+  height: 100%;
+}
+
+.cross-section-controls {
+  position: absolute;
+  bottom: 16px;
+  left: 50%;
+  transform: translateX(-50%);
+  display: flex;
+  align-items: center;
+  gap: 12px;
+  background: var(--bg-glass);
+  border: 1px solid var(--border);
+  border-radius: var(--radius-md);
+  padding: 8px 16px;
+}
+
+.cross-section-slider {
+  width: 200px;
+  accent-color: var(--accent);
+}
+
+.cross-section-label {
+  font-size: var(--font-xs);
+  color: var(--text-secondary);
+  white-space: nowrap;
+}
+
+/* ── Infrastructure Compliance Panel ──────────────────────────────────────── */
+
+.infra-compliance-panel {
+  position: absolute;
+  top: 12px;
+  right: 12px;
+  background: var(--bg-glass);
+  border: 1px solid var(--border);
+  border-radius: var(--radius-md);
+  padding: 12px 16px;
+  min-width: 240px;
+  max-height: 320px;
+  overflow-y: auto;
+  z-index: 10;
+}
+
+.infra-compliance-header {
+  display: flex;
+  justify-content: space-between;
+  align-items: center;
+  margin-bottom: 10px;
+  color: var(--accent);
+  font-weight: 600;
+  font-size: var(--font-sm);
+}
+
+.infra-compliance-header button {
+  background: none;
+  border: none;
+  color: var(--text-muted);
+  cursor: pointer;
+  font-size: 16px;
+}
+
+.infra-compliance-item {
+  display: flex;
+  align-items: center;
+  gap: 8px;
+  padding: 6px 0;
+  border-bottom: 1px solid var(--border);
+  font-size: var(--font-xs);
+  color: var(--text-secondary);
+}
+
+.infra-compliance-item:last-child {
+  border-bottom: none;
+}
+
+.infra-compliance-status {
+  width: 8px;
+  height: 8px;
+  border-radius: 50%;
+  flex-shrink: 0;
+}
+
+/* ── Properties Panels ────────────────────────────────────────────────────── */
+
+.infra-properties-panel {
+  position: absolute;
+  top: 12px;
+  left: 12px;
+  background: var(--bg-glass);
+  border: 1px solid var(--border);
+  border-radius: var(--radius-md);
+  padding: 12px 16px;
+  min-width: 220px;
+  z-index: 10;
+}
+
+.infra-properties-header {
+  display: flex;
+  justify-content: space-between;
+  align-items: center;
+  margin-bottom: 10px;
+  color: var(--accent);
+  font-weight: 600;
+  font-size: var(--font-sm);
+}
+
+.infra-properties-header button {
+  background: none;
+  border: none;
+  color: var(--text-muted);
+  cursor: pointer;
+  font-size: 16px;
+}
+
+.infra-property-row {
+  display: flex;
+  justify-content: space-between;
+  align-items: center;
+  padding: 4px 0;
+  font-size: var(--font-xs);
+}
+
+.infra-property-label {
+  color: var(--text-muted);
+}
+
+.infra-property-value {
+  color: var(--text-primary);
+}
+
+.infra-property-input {
+  background: var(--bg-tertiary);
+  border: 1px solid var(--border);
+  color: var(--text-primary);
+  font-size: var(--font-xs);
+  padding: 3px 6px;
+  border-radius: var(--radius-sm);
+  width: 80px;
+  text-align: right;
+}
+
+.infra-property-select {
+  background: var(--bg-tertiary);
+  border: 1px solid var(--border);
+  color: var(--text-primary);
+  font-size: var(--font-xs);
+  padding: 3px 6px;
+  border-radius: var(--radius-sm);
+  cursor: pointer;
+}
+
+/* ── Infrastructure Catalog ───────────────────────────────────────────────── */
+
+.infra-catalog {
+  position: absolute;
+  left: 12px;
+  bottom: 90px;
+  background: var(--bg-glass);
+  border: 1px solid var(--border);
+  border-radius: var(--radius-md);
+  padding: 10px;
+  z-index: 10;
+  max-width: 260px;
+}
+
+.infra-catalog-header {
+  color: var(--accent);
+  font-size: var(--font-sm);
+  font-weight: 600;
+  margin-bottom: 8px;
+}
+
+.infra-catalog-section {
+  margin-bottom: 8px;
+}
+
+.infra-catalog-section-title {
+  font-size: var(--font-xs);
+  color: var(--text-muted);
+  text-transform: uppercase;
+  letter-spacing: 0.05em;
+  margin-bottom: 4px;
+}
+
+.infra-catalog-items {
+  display: flex;
+  flex-wrap: wrap;
+  gap: 4px;
+}
+
+.infra-catalog-item {
+  background: var(--bg-tertiary);
+  border: 1px solid var(--border);
+  border-radius: var(--radius-sm);
+  padding: 6px 10px;
+  font-size: var(--font-xs);
+  color: var(--text-secondary);
+  cursor: grab;
+  transition: background 0.15s, border-color 0.15s;
+  user-select: none;
+}
+
+.infra-catalog-item:hover {
+  background: var(--accent-bg);
+  border-color: var(--border-accent);
+  color: var(--text-primary);
+}
+
+.infra-catalog-item:active {
+  cursor: grabbing;
+}

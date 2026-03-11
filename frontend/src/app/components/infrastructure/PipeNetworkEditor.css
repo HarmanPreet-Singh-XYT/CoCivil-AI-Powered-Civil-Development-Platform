@@ -1,0 +1,100 @@
+/* ── Pipe Network Editor ──────────────────────────────────────────────────── */
+
+.pipe-editor {
+  display: flex;
+  width: 100%;
+  height: 100%;
+  position: relative;
+}
+
+.pipe-editor-toolbar {
+  display: flex;
+  flex-direction: column;
+  gap: 2px;
+  padding: 8px;
+  background: var(--bg-secondary);
+  border-right: 1px solid var(--border);
+  z-index: 5;
+}
+
+.pipe-editor-toolbar button {
+  background: var(--bg-tertiary);
+  border: 1px solid var(--border);
+  color: var(--text-secondary);
+  font-size: var(--font-xs);
+  padding: 6px 10px;
+  border-radius: var(--radius-sm);
+  cursor: pointer;
+  transition: background 0.15s, color 0.15s;
+  text-align: left;
+  white-space: nowrap;
+}
+
+.pipe-editor-toolbar button:hover {
+  background: var(--accent-bg);
+  color: var(--text-primary);
+}
+
+.pipe-editor-toolbar button.active {
+  background: var(--accent);
+  color: #111;
+  border-color: var(--accent);
+  font-weight: 600;
+}
+
+.pipe-editor-toolbar .toolbar-shortcut {
+  color: var(--text-muted);
+  font-size: 9px;
+  margin-left: 4px;
+}
+
+.pipe-editor-toolbar .toolbar-divider {
+  height: 1px;
+  background: var(--border);
+  margin: 4px 0;
+}
+
+.pipe-editor-canvas {
+  flex: 1;
+  position: relative;
+  overflow: hidden;
+}
+
+/* ── Flow direction arrows ────────────────────────────────────────────────── */
+
+.flow-arrow {
+  pointer-events: none;
+}
+
+/* ── Pipe segment info tooltip ────────────────────────────────────────────── */
+
+.pipe-segment-tooltip {
+  position: absolute;
+  background: var(--bg-glass);
+  border: 1px solid var(--border);
+  border-radius: var(--radius-sm);
+  padding: 6px 10px;
+  font-size: var(--font-xs);
+  color: var(--text-secondary);
+  pointer-events: none;
+  z-index: 20;
+  white-space: nowrap;
+}
+
+/* ── Undo/Redo section ────────────────────────────────────────────────────── */
+
+.pipe-editor-toolbar .undo-redo-group {
+  display: flex;
+  gap: 2px;
+}
+
+.pipe-editor-toolbar .undo-redo-group button {
+  flex: 1;
+  text-align: center;
+  padding: 4px 6px;
+}
+
+.pipe-editor-toolbar .undo-redo-group button:disabled {
+  opacity: 0.3;
+  cursor: not-allowed;
+}

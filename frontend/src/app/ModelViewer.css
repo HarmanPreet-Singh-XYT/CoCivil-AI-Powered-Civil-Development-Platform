@@ -1,0 +1,460 @@
+/* ── 3D Model Viewer (inline — replaces map, panels stay on top) ─────────── */
+
+.model-overlay {
+  position: fixed;
+  inset: 0;
+  z-index: 5;          /* above map (0), below all panels (10+) */
+  background: #f5f0eb;
+}
+
+.model-canvas-area {
+  overflow: hidden;
+}
+
+.model-close-btn {
+  position: absolute;
+  top: 12px;
+  z-index: 20;
+  background: rgba(26, 26, 26, 0.85);
+  border: 1px solid #3a3a3a;
+  color: #aaa;
+  font-size: 16px;
+  cursor: pointer;
+  padding: 4px 9px;
+  line-height: 1;
+  border-radius: 6px;
+  transition: color 0.15s, background 0.15s;
+}
+
+.model-close-btn:hover {
+  color: #fff;
+  background: #2a2a2a;
+}
+
+.model-canvas {
+  flex: 1;
+  width: 100% !important;
+}
+
+.model-controls {
+  display: flex;
+  align-items: center;
+  gap: 12px;
+  padding: 8px 16px;
+  background: #1a1a1a;
+  border-top: 1px solid #2a2a2a;
+  flex-shrink: 0;
+}
+
+.model-ctrl-btn {
+  background: #2a2a2a;
+  border: 1px solid #3a3a3a;
+  color: #ccc;
+  font-size: 12px;
+  padding: 5px 12px;
+  border-radius: 6px;
+  cursor: pointer;
+  transition: background 0.15s, color 0.15s;
+}
+
+.model-ctrl-btn:hover {
+  background: #333;
+  color: #fff;
+}
+
+.model-info {
+  font-size: 12px;
+  color: #888;
+  margin-left: auto;
+}
+
+.model-empty-hint {
+  position: absolute;
+  top: 16px;
+  left: 50%;
+  transform: translateX(-50%);
+  z-index: 6;
+  background: rgba(26, 26, 26, 0.9);
+  color: #c8a55c;
+  font-size: 13px;
+  padding: 10px 20px;
+  border-radius: 8px;
+  pointer-events: none;
+  white-space: nowrap;
+}
+
+/* ── Map "Model" button ──────────────────────────────────────────────────── */
+
+.map-model-btn {
+  position: fixed;
+  right: 16px;
+  z-index: 11;
+  background: #1a1a1a;
+  color: #c8a55c;
+  border: 1px solid #c8a55c55;
+  font-size: 12px;
+  font-weight: 600;
+  padding: 7px 14px;
+  border-radius: 8px;
+  cursor: pointer;
+  letter-spacing: 0.04em;
+  transition: background 0.15s, border-color 0.15s;
+  box-shadow: 0 2px 8px rgba(0, 0, 0, 0.5);
+}
+
+
+.map-model-btn:hover {
+  background: #c8a55c;
+  color: #111;
+  border-color: #c8a55c;
+}
+
+/* ── Version Control Bar ─────────────────────────────────────────────────── */
+
+.version-control-bar {
+  display: flex;
+  align-items: center;
+  gap: 10px;
+  padding: 6px 16px;
+  border-bottom: 1px solid #2a2a2a;
+  font-size: 12px;
+  flex-wrap: wrap;
+}
+
+.branch-selector {
+  background: #2a2a2a;
+  border: 1px solid #3a3a3a;
+  color: #ccc;
+  font-size: 12px;
+  padding: 4px 8px;
+  border-radius: 4px;
+  cursor: pointer;
+  max-width: 140px;
+}
+
+.version-info {
+  color: #888;
+  font-size: 11px;
+  max-width: 200px;
+  overflow: hidden;
+  text-overflow: ellipsis;
+  white-space: nowrap;
+}
+
+.version-actions {
+  display: flex;
+  gap: 6px;
+  margin-left: auto;
+  align-items: center;
+}
+
+.dirty-indicator {
+  color: #c8a55c;
+  font-size: 11px;
+  font-weight: 600;
+  padding: 2px 8px;
+  background: rgba(200, 165, 92, 0.15);
+  border-radius: 4px;
+}
+
+.compliance-badge {
+  display: inline-flex;
+  align-items: center;
+  gap: 5px;
+  font-size: 11px;
+  font-weight: 500;
+}
+
+.compliance-dot {
+  width: 8px;
+  height: 8px;
+  border-radius: 50%;
+  display: inline-block;
+}
+
+.branch-input-group {
+  display: flex;
+  gap: 4px;
+  align-items: center;
+}
+
+.branch-name-input {
+  background: #2a2a2a;
+  border: 1px solid #3a3a3a;
+  color: #ccc;
+  font-size: 12px;
+  padding: 4px 8px;
+  border-radius: 4px;
+  width: 120px;
+}
+
+.commit-btn {
+  background: #c8a55c !important;
+  color: #111 !important;
+  font-weight: 600;
+}
+
+.commit-btn:hover {
+  background: #d4b87a !important;
+}
+
+.commit-btn:disabled {
+  opacity: 0.5;
+  cursor: not-allowed;
+}
+
+/* ── View Mode Toggle ─────────────────────────────────────────────────── */
+
+.model-controls-row {
+  display: flex;
+  align-items: center;
+  gap: 12px;
+  padding: 8px 16px;
+}
+
+.view-mode-toggle {
+  display: flex;
+  gap: 2px;
+}
+
+.view-mode-toggle .model-ctrl-btn.active {
+  background: #c8a55c;
+  color: #111;
+  border-color: #c8a55c;
+}
+
+.view-mode-toggle .model-ctrl-btn:disabled {
+  opacity: 0.3;
+  cursor: not-allowed;
+}
+
+/* ── Floor Selector ─────────────────────────────────────────────────── */
+
+.floor-selector {
+  display: flex;
+  gap: 2px;
+}
+
+.floor-btn {
+  padding: 4px 8px !important;
+  font-size: 11px !important;
+  min-width: 32px;
+}
+
+.floor-btn.active {
+  background: #444;
+  color: #fff;
+  border-color: #666;
+}
+
+/* ── Room Info Panel ─────────────────────────────────────────────────── */
+
+.room-info-panel {
+  position: absolute;
+  top: 16px;
+  left: 16px;
+  background: rgba(26, 26, 26, 0.95);
+  border: 1px solid #3a3a3a;
+  border-radius: 8px;
+  padding: 12px 16px;
+  min-width: 180px;
+  z-index: 10;
+}
+
+.room-info-header {
+  display: flex;
+  justify-content: space-between;
+  align-items: center;
+  margin-bottom: 8px;
+  color: #c8a55c;
+  font-weight: 600;
+  font-size: 13px;
+}
+
+.room-info-header button {
+  background: none;
+  border: none;
+  color: #888;
+  cursor: pointer;
+  font-size: 16px;
+  padding: 0;
+}
+
+.room-info-body {
+  font-size: 12px;
+  color: #aaa;
+  line-height: 1.6;
+}
+
+.room-info-label {
+  color: #888;
+  margin-right: 4px;
+}
+
+/* ── Commit Modal ─────────────────────────────────────────────────── */
+
+.commit-modal-overlay {
+  position: absolute;
+  inset: 0;
+  background: rgba(0, 0, 0, 0.5);
+  display: flex;
+  align-items: center;
+  justify-content: center;
+  z-index: 20;
+}
+
+.commit-modal {
+  background: #1a1a1a;
+  border: 1px solid #3a3a3a;
+  border-radius: 12px;
+  padding: 20px 24px;
+  min-width: 320px;
+  max-width: 420px;
+}
+
+.commit-modal h3 {
+  color: #c8a55c;
+  font-size: 14px;
+  margin: 0 0 16px;
+}
+
+.commit-modal label {
+  display: block;
+  color: #888;
+  font-size: 12px;
+  margin-bottom: 12px;
+}
+
+.commit-modal input {
+  width: 100%;
+  margin-top: 6px;
+  background: #2a2a2a;
+  border: 1px solid #3a3a3a;
+  color: #ccc;
+  font-size: 13px;
+  padding: 8px 10px;
+  border-radius: 6px;
+  box-sizing: border-box;
+}
+
+.commit-changes {
+  margin-bottom: 16px;
+}
+
+.commit-changes-label {
+  color: #888;
+  font-size: 12px;
+  display: block;
+  margin-bottom: 6px;
+}
+
+.commit-change-item {
+  color: #aaa;
+  font-size: 12px;
+  padding: 2px 0 2px 12px;
+  position: relative;
+}
+
+.commit-change-item::before {
+  content: '•';
+  position: absolute;
+  left: 0;
+  color: #c8a55c;
+}
+
+.commit-modal-actions {
+  display: flex;
+  gap: 8px;
+  justify-content: flex-end;
+}
+
+/* ── History Panel ─────────────────────────────────────────────────── */
+
+.history-panel {
+  position: absolute;
+  bottom: 80px;
+  right: 16px;
+  background: rgba(26, 26, 26, 0.95);
+  border: 1px solid #3a3a3a;
+  border-radius: 8px;
+  min-width: 280px;
+  max-height: 300px;
+  overflow-y: auto;
+  z-index: 15;
+}
+
+.history-header {
+  display: flex;
+  justify-content: space-between;
+  align-items: center;
+  padding: 10px 14px;
+  border-bottom: 1px solid #2a2a2a;
+  color: #c8a55c;
+  font-size: 12px;
+  font-weight: 600;
+}
+
+.history-close {
+  background: none;
+  border: none;
+  color: #888;
+  cursor: pointer;
+  font-size: 16px;
+}
+
+.history-list {
+  padding: 4px 0;
+}
+
+.history-item {
+  display: flex;
+  align-items: center;
+  gap: 8px;
+  padding: 8px 14px;
+  cursor: pointer;
+  transition: background 0.15s;
+}
+
+.history-item:hover {
+  background: #2a2a2a;
+}
+
+.history-version {
+  color: #c8a55c;
+  font-size: 12px;
+  font-weight: 600;
+  min-width: 24px;
+}
+
+.history-message {
+  color: #aaa;
+  font-size: 12px;
+  flex: 1;
+  overflow: hidden;
+  text-overflow: ellipsis;
+  white-space: nowrap;
+}
+
+.history-branches {
+  border-top: 1px solid #2a2a2a;
+  padding: 8px;
+}
+
+.history-branch-btn {
+  display: block;
+  width: 100%;
+  background: #2a2a2a;
+  border: 1px solid #3a3a3a;
+  color: #888;
+  font-size: 11px;
+  padding: 6px 10px;
+  border-radius: 4px;
+  cursor: pointer;
+  margin-bottom: 4px;
+  text-align: left;
+}
+
+.history-branch-btn:hover {
+  color: #ccc;
+  background: #333;
+}

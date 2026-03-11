@@ -9,7 +9,8 @@ dist/
 downloads/
 eggs/
 .eggs/
-lib/
+frontend/.next/
+frontend/node_modules/
 !frontend-react/src/lib/
 !frontend-react/src/lib/**
 lib64/
