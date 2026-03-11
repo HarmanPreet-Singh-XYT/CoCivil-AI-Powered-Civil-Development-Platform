@@ -1,121 +1,52 @@
 "use client";
-import { useState, useEffect } from 'react';
-import { authClient, useSession } from '../lib/auth-client.js';
+import { useState } from 'react';
 
-export default function LoginPage() {
-    const { data: session, isPending: isSessionPending } = useSession();
-
-    useEffect(() => {
-        if (session && !isSessionPending) {
-            window.location.href = '/';
-        }
-    }, [session, isSessionPending]);
-
-    const [isLogin, setIsLogin] = useState(true);
+export default function ForgetPasswordPage() {
     const [isLoading, setIsLoading] = useState(false);
-    const [showPassword, setShowPassword] = useState(false);
-
-    // Form State
-    const [formData, setFormData] = useState({
-        name: '',
-        email: '',
-        password: '',
-        confirmPassword: '',
-        acceptTerms: false
-    });
-
-    const [errors, setErrors] = useState({});
-    const [serverError, setServerError] = useState('');
+    const [email, setEmail] = useState('');
+    const [error, setError] = useState('');
     const [successMessage, setSuccessMessage] = useState('');
 
     const handleInputChange = (e) => {
-        const { name, value, type, checked } = e.target;
-        const finalValue = type === 'checkbox' ? checked : value;
-        setFormData(prev => ({ ...prev, [name]: finalValue }));
-        if (errors[name]) {
-            setErrors(prev => ({ ...prev, [name]: '' }));
-        }
-        setServerError('');
+        setEmail(e.target.value);
+        setError('');
         setSuccessMessage('');
-    };
-
-    const toggleAuthMode = () => {
-        setIsLogin(!isLogin);
-        setErrors({});
-        setServerError('');
-        setSuccessMessage('');
-        setFormData({ name: '', email: '', password: '', confirmPassword: '', acceptTerms: false });
-        setShowPassword(false);
-    };
-
-    const validateInputs = () => {
-        const newErrors = {};
-        const emailRegex = /^[^\s@]+@[^\s@]+\.[^\s@]+$/;
-        const passwordRegex = /^(?=.*[a-z])(?=.*[A-Z])(?=.*\d)(?=.*[@$!%*?&#])[A-Za-z\d@$!%*?&#]/;
-        const nameRegex = /^[a-zA-Z\s\-']+$/;
-
-        const sanitizedEmail = formData.email.trim();
-        const sanitizedName = formData.name.trim();
-
-        if (!isLogin) {
-            if (sanitizedName.length < 2) {
-                newErrors.name = 'Name must be at least 2 characters.';
-            } else if (!nameRegex.test(sanitizedName)) {
-                newErrors.name = 'Name contains valid characters only.';
-            }
-            
-            if (formData.password !== formData.confirmPassword) {
-                newErrors.confirmPassword = 'Passwords do not match.';
-            }
-            if (!formData.acceptTerms) {
-                newErrors.acceptTerms = 'You must accept the terms and policies.';
-            }
-        }
-        if (!emailRegex.test(sanitizedEmail)) {
-            newErrors.email = 'Valid email required.';
-        }
-        
-        if (formData.password.length < 8) {
-            newErrors.password = 'Password must be at least 8 chars.';
-        } else if (!isLogin && !passwordRegex.test(formData.password)) {
-            newErrors.password = 'Needs uppercase, lowercase, number, & special char.';
-        }
-
-        setErrors(newErrors);
-        return Object.keys(newErrors).length === 0;
     };
 
     const handleSubmit = async (e) => {
         e.preventDefault();
-        if (!validateInputs()) return;
+        if (!email) {
+            setError('Please enter your email to reset password.');
+            return;
+        }
         setIsLoading(true);
-        setServerError('');
-
+        setError('');
+        setSuccessMessage('');
         try {
-            if (isLogin) {
-                await authClient.signIn.email({
-                    email: formData.email.trim(),
-                    password: formData.password
-                });
-            } else {
-                await authClient.signUp.email({
-                    email: formData.email.trim(),
-                    password: formData.password,
-                    name: formData.name.trim()
-                });
+            const result = await fetch('/api/auth/request-password-reset', {
+                method: 'POST',
+                headers: {
+                    'Content-Type': 'application/json'
+                },
+                body: JSON.stringify({
+                    email: email.trim(),
+                    redirectTo: `${window.location.origin}/reset-password`
+                })
+            });
+            
+            if (!result.ok) {
+                const data = await result.json();
+                throw new Error(data.message || 'Failed to send reset link.');
             }
-            window.location.href = '/';
+            
+            setSuccessMessage("If an account exists, a password reset link has been sent to your email.");
+            setEmail('');
         } catch (error) {
-            console.error(error);
-            setServerError(error.message || 'Authentication failed. Please try again.');
+            setError(error.message || 'Failed to send reset link.');
         } finally {
             setIsLoading(false);
         }
     };
-
-    if (session) {
-        return null;
-    }
 
     return (
         <div className="layout-container">
@@ -177,7 +108,6 @@ export default function LoginPage() {
                     width: 100%;
                     outline: none;
                 }
-                .login-input.password-field { padding-right: 48px; }
                 .login-input:focus {
                     border-color: #c8a55c;
                     background: rgba(255, 255, 255, 0.05);
@@ -187,24 +117,6 @@ export default function LoginPage() {
                     border-color: #f87171;
                     box-shadow: 0 0 0 1px rgba(248, 113, 113, 0.2);
                 }
-                
-                /* Buttons & Toggles */
-                .password-toggle {
-                    position: absolute;
-                    right: 12px;
-                    top: 50%;
-                    transform: translateY(-50%);
-                    background: none;
-                    border: none;
-                    color: #a8a29e;
-                    cursor: pointer;
-                    padding: 4px;
-                    display: flex;
-                    align-items: center;
-                    justify-content: center;
-                    transition: color 0.2s ease;
-                }
-                .password-toggle:hover { color: #fff; }
                 
                 .login-btn {
                     background: #c8a55c;
@@ -327,20 +239,20 @@ export default function LoginPage() {
                 <div className="auth-card">
                     <div style={{ marginBottom: '40px' }}>
                         <h1 style={{ fontSize: '32px', fontWeight: '600', letterSpacing: '-0.02em', color: '#fff', marginBottom: '8px' }}>
-                            {isLogin ? 'Welcome back' : 'Create an account'}
+                            Forget Password
                         </h1>
                         <p style={{ fontSize: '15px', color: '#a8a29e', fontWeight: '400' }}>
-                            {isLogin ? 'Sign in to access your dashboard' : 'Join the new standard in structural planning'}
+                            Enter your email to receive a password reset link
                         </p>
                     </div>
 
                     <form onSubmit={handleSubmit} style={{ display: 'flex', flexDirection: 'column', gap: '24px' }}>
-                        {serverError && (
+                        {error && (
                             <div className="error-alert">
                                 <svg xmlns="http://www.w3.org/2000/svg" style={{ width: '20px', height: '20px', flexShrink: 0, marginTop: '2px' }} viewBox="0 0 20 20" fill="currentColor">
                                     <path fillRule="evenodd" d="M10 18a8 8 0 100-16 8 8 0 000 16zM8.707 7.293a1 1 0 00-1.414 1.414L8.586 10l-1.293 1.293a1 1 0 101.414 1.414L10 11.414l1.293 1.293a1 1 0 001.414-1.414L11.414 10l1.293-1.293a1 1 0 00-1.414-1.414L10 8.586 8.707 7.293z" clipRule="evenodd" />
                                 </svg>
-                                <span style={{ lineHeight: 1.5 }}>{serverError}</span>
+                                <span style={{ lineHeight: 1.5 }}>{error}</span>
                             </div>
                         )}
                         {successMessage && (
@@ -352,69 +264,12 @@ export default function LoginPage() {
                             </div>
                         )}
 
-                        {!isLogin && (
-                            <div className="input-group">
-                                <label htmlFor="name" className="login-label">
-                                    Full Name
-                                    {errors.name && <span style={{ color: '#f87171', fontWeight: '400' }}>{errors.name}</span>}
-                                </label>
-                                <input id="name" name="name" type="text" value={formData.name} onChange={handleInputChange} placeholder="Jane Doe" className={`login-input ${errors.name ? 'has-error' : ''}`} aria-invalid={!!errors.name} />
-                            </div>
-                        )}
-
                         <div className="input-group">
                             <label htmlFor="email" className="login-label">
                                 Email
-                                {errors.email && <span style={{ color: '#f87171', fontWeight: '400' }}>{errors.email}</span>}
                             </label>
-                            <input id="email" name="email" type="email" value={formData.email} onChange={handleInputChange} placeholder="name@company.com" className={`login-input ${errors.email ? 'has-error' : ''}`} aria-invalid={!!errors.email} />
+                            <input id="email" name="email" type="email" value={email} onChange={handleInputChange} placeholder="name@company.com" className={`login-input ${error ? 'has-error' : ''}`} aria-invalid={!!error} />
                         </div>
-
-                        <div className="input-group">
-                            <label htmlFor="password" className="login-label">
-                                Password
-                                {isLogin && !errors.password && <a href="/forget-password" style={{ color: '#dfc07f', textDecoration: 'none', transition: 'color 0.2s' }}>Forgot?</a>}
-                                {errors.password && <span style={{ color: '#f87171', fontWeight: '400' }}>{errors.password}</span>}
-                            </label>
-                            <div style={{ position: 'relative' }}>
-                                <input id="password" name="password" type={showPassword ? "text" : "password"} value={formData.password} onChange={handleInputChange} placeholder="••••••••" className={`login-input password-field ${errors.password ? 'has-error' : ''}`} aria-invalid={!!errors.password} />
-                                <button type="button" className="password-toggle" onClick={() => setShowPassword(!showPassword)} aria-label={showPassword ? "Hide password" : "Show password"}>
-                                    {showPassword ? (
-                                        <svg xmlns="http://www.w3.org/2000/svg" width="18" height="18" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2" strokeLinecap="round" strokeLinejoin="round"><path d="M17.94 17.94A10.07 10.07 0 0 1 12 20c-7 0-11-8-11-8a18.45 18.45 0 0 1 5.06-5.94M9.9 4.24A9.12 9.12 0 0 1 12 4c7 0 11 8 11 8a18.5 18.5 0 0 1-2.16 3.19m-6.72-1.07a3 3 0 1 1-4.24-4.24"></path><line x1="1" y1="1" x2="23" y2="23"></line></svg>
-                                    ) : (
-                                        <svg xmlns="http://www.w3.org/2000/svg" width="18" height="18" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2" strokeLinecap="round" strokeLinejoin="round"><path d="M1 12s4-8 11-8 11 8 11 8-4 8-11 8-11-8-11-8z"></path><circle cx="12" cy="12" r="3"></circle></svg>
-                                    )}
-                                </button>
-                            </div>
-                        </div>
-
-                        {!isLogin && (
-                            <div className="input-group">
-                                <label htmlFor="confirmPassword" className="login-label">
-                                    Confirm Password
-                                    {errors.confirmPassword && <span style={{ color: '#f87171', fontWeight: '400' }}>{errors.confirmPassword}</span>}
-                                </label>
-                                <input id="confirmPassword" name="confirmPassword" type="password" value={formData.confirmPassword} onChange={handleInputChange} placeholder="••••••••" className={`login-input ${errors.confirmPassword ? 'has-error' : ''}`} aria-invalid={!!errors.confirmPassword} />
-                            </div>
-                        )}
-
-                        {!isLogin && (
-                            <div style={{ display: 'flex', flexDirection: 'column', gap: '4px' }}>
-                                <label style={{ display: 'flex', alignItems: 'center', gap: '8px', cursor: 'pointer' }}>
-                                    <input 
-                                        type="checkbox" 
-                                        name="acceptTerms" 
-                                        checked={formData.acceptTerms} 
-                                        onChange={handleInputChange} 
-                                        style={{ accentColor: '#c8a55c', width: '16px', height: '16px', cursor: 'pointer' }}
-                                    />
-                                    <span style={{ fontSize: '13px', color: '#a8a29e', userSelect: 'none' }}>
-                                        I accept the <a href="#" style={{ color: '#dfc07f', textDecoration: 'none' }}>Terms of Service</a> and <a href="#" style={{ color: '#dfc07f', textDecoration: 'none' }}>Privacy Policy</a>
-                                    </span>
-                                </label>
-                                {errors.acceptTerms && <span style={{ color: '#f87171', fontSize: '12px', marginTop: '4px' }}>{errors.acceptTerms}</span>}
-                            </div>
-                        )}
 
                         <button type="submit" disabled={isLoading} className="login-btn">
                             {isLoading ? (
@@ -423,16 +278,16 @@ export default function LoginPage() {
                                     <path style={{ opacity: 0.75 }} fill="currentColor" d="M4 12a8 8 0 018-8V0C5.373 0 0 5.373 0 12h4zm2 5.291A7.962 7.962 0 014 12H0c0 3.042 1.135 5.824 3 7.938l3-2.647z"></path>
                                 </svg>
                             ) : (
-                                <span>{isLogin ? 'Sign In' : 'Create Account'}</span>
+                                <span>Send Reset Link</span>
                             )}
                         </button>
                     </form>
 
                     <div style={{ marginTop: '32px', paddingTop: '24px', borderTop: '1px solid rgba(255,255,255,0.08)', textAlign: 'center', fontSize: '14px', color: '#a8a29e' }}>
-                        {isLogin ? "New to CoCivil? " : "Already have an account? "}
-                        <button type="button" onClick={toggleAuthMode} style={{ color: '#fff', fontWeight: '500', marginLeft: '4px', background: 'none', border: 'none', cursor: 'pointer', outline: 'none' }}>
-                            {isLogin ? 'Sign up for free' : 'Sign in'}
-                        </button>
+                        Remember your password? 
+                        <a href="/login" style={{ color: '#fff', fontWeight: '500', marginLeft: '4px', textDecoration: 'none' }}>
+                            Sign in
+                        </a>
                     </div>
                 </div>
             </div>
