@@ -491,7 +491,7 @@ export default function ChatPanel({ parcelContext, onPlanComplete, onToggleExpan
                             `Network: ${s.pipe_count ?? 0} pipe segments · ${s.total_length_m ?? 0}m total length`,
                         ];
                         if (s.manhole_count) parts.push(`Manholes: ${s.manhole_count}`);
-                        if (s.valve_count)   parts.push(`Valves: ${s.valve_count}`);
+                        if (s.valve_count) parts.push(`Valves: ${s.valve_count}`);
                         if (s.hydrant_count) parts.push(`Hydrants: ${s.hydrant_count}`);
                         parts.push('\nThe 3D pipeline viewer has opened. Click any pipe or manhole to edit its properties.');
                         setMessages((prev) => [...prev, { role: 'assistant', text: parts.join('\n') }]);
@@ -599,7 +599,7 @@ export default function ChatPanel({ parcelContext, onPlanComplete, onToggleExpan
     }, [sendMessage]);
 
     return (
-        <div id="chat-panel" className={isExpanded ? 'expanded' : ''} style={{ userSelect: isChatResizing ? 'none' : undefined }}>
+        <div id="chat-panel" className={`${isExpanded ? 'expanded' : ''} backdrop-blur-xl`} style={{ userSelect: isChatResizing ? 'none' : undefined }}>
             {isExpanded && <div {...chatResizeProps} style={{ ...chatResizeProps.style, top: -2 }} />}
             <div id="chat-toggle" role="button" tabIndex="0" aria-label="Toggle chat" onClick={handleToggle}>
                 <div id="chat-toggle-left">
@@ -640,10 +640,10 @@ export default function ChatPanel({ parcelContext, onPlanComplete, onToggleExpan
                                         onClick={() => handleGenerateAction(msg.action, idx)}
                                     >
                                         <svg viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2" width="13" height="13">
-                                            <path d="M14 2H6a2 2 0 0 0-2 2v16a2 2 0 0 0 2 2h12a2 2 0 0 0 2-2V8z"/>
-                                            <polyline points="14 2 14 8 20 8"/>
-                                            <line x1="12" y1="18" x2="12" y2="12"/>
-                                            <line x1="9" y1="15" x2="15" y2="15"/>
+                                            <path d="M14 2H6a2 2 0 0 0-2 2v16a2 2 0 0 0 2 2h12a2 2 0 0 0 2-2V8z" />
+                                            <polyline points="14 2 14 8 20 8" />
+                                            <line x1="12" y1="18" x2="12" y2="12" />
+                                            <line x1="9" y1="15" x2="15" y2="15" />
                                         </svg>
                                         {msg.action.label}
                                     </button>

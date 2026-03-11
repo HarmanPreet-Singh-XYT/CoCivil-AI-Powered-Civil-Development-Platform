@@ -77,7 +77,7 @@ export default function Sidebar({ isCollapsed, onToggleCollapse, activeNav, onNa
     const NAV_ITEMS = useMemo(() => NAV_BY_ASSET_TYPE[currentAssetType] || BUILDING_NAV_ITEMS, [currentAssetType]);
 
     return (
-        <nav id="sidebar" style={{ userSelect: isResizing ? 'none' : undefined }}>
+        <nav id="sidebar" style={{ userSelect: isResizing ? 'none' : undefined }} className=' backdrop-blur-xl'>
             <div className="sidebar-top">
                 <div className="sidebar-logo">
                     {isCollapsed

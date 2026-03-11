@@ -23,15 +23,15 @@ const MATERIAL_COLORS = {
 function hwCFactor(mat, age) {
     const a = age || 0;
     switch (mat) {
-        case 'CI':   return Math.max(40,  130 - a * 0.55);
-        case 'CICL': return Math.max(80,  130 - a * 0.35);
-        case 'DIP':  return Math.max(100, 140 - a * 0.20);
+        case 'CI': return Math.max(40, 130 - a * 0.55);
+        case 'CICL': return Math.max(80, 130 - a * 0.35);
+        case 'DIP': return Math.max(100, 140 - a * 0.20);
         case 'DICL': return Math.max(110, 140 - a * 0.15);
-        case 'PVC':  return 150;
-        case 'CPP':  return 140;
-        case 'AC':   return Math.max(80,  140 - a * 0.30);
-        case 'COP':  return 130;
-        default:     return 100;
+        case 'PVC': return 150;
+        case 'CPP': return 140;
+        case 'AC': return Math.max(80, 140 - a * 0.30);
+        case 'COP': return 130;
+        default: return 100;
     }
 }
 
@@ -57,20 +57,20 @@ function hwPressureDrop(diamMm, C, flowLs) {
 /** Break probability breaks/km/year */
 function breakProb(mat, age) {
     const a = age || 0;
-    if (mat === 'AC')                   return 0.8;
+    if (mat === 'AC') return 0.8;
     if (mat === 'CI' || mat === 'CICL') {
         if (a > 100) return 1.8;
-        if (a > 75)  return 0.9;
-        if (a > 50)  return 0.45;
+        if (a > 75) return 0.9;
+        if (a > 50) return 0.45;
         return 0.18;
     }
     if (mat === 'DIP' || mat === 'DICL') {
-        if (a > 60)  return 0.22;
-        if (a > 30)  return 0.10;
+        if (a > 60) return 0.22;
+        if (a > 30) return 0.10;
         return 0.05;
     }
     if (mat === 'PVC' || mat === 'CPP') {
-        if (a > 40)  return 0.08;
+        if (a > 40) return 0.08;
         return 0.02;
     }
     return 0.3;
@@ -99,7 +99,7 @@ function pipeCondition(mat, installYear) {
     if (mat === 'AC') return { label: 'Critical — Hazardous Material', color: '#e74c3c', risk: 'critical' };
     if (!age) return { label: 'Unknown', color: '#888', risk: 'unknown' };
     const bp = breakProb(mat, age);
-    if (bp >= 1.0)  return { label: 'Critical — End of Service Life', color: '#e74c3c', risk: 'critical' };
+    if (bp >= 1.0) return { label: 'Critical — End of Service Life', color: '#e74c3c', risk: 'critical' };
     if (bp >= 0.45) return { label: 'High Risk', color: '#e67e22', risk: 'high' };
     if (bp >= 0.15) return { label: 'Moderate Risk', color: '#f1c40f', risk: 'moderate' };
     return { label: 'Good Condition', color: '#27ae60', risk: 'good' };
@@ -177,31 +177,31 @@ function Checklist({ items }) {
 }
 
 function PipelineAssetPanel({ asset }) {
-    const mat  = asset.material || 'UNK';
+    const mat = asset.material || 'UNK';
     const color = MATERIAL_COLORS[mat] || '#888';
     const matLabel = MATERIAL_LABELS[mat] || mat;
-    const age  = asset.install_year ? (2026 - asset.install_year) : null;
+    const age = asset.install_year ? (2026 - asset.install_year) : null;
     const diam = asset.diameter_mm || 150;
     const cond = pipeCondition(mat, asset.install_year);
 
     // Hydraulic
-    const C      = hwCFactor(mat, age);
-    const C_new  = hwCFactor(mat, 0);
+    const C = hwCFactor(mat, age);
+    const C_new = hwCFactor(mat, 0);
     const flowNow = hwFlow(diam, C);
     const flowNew = hwFlow(diam, C_new);
     const flowPct = Math.round((flowNow / flowNew) * 100);
-    const dpNow  = hwPressureDrop(diam, C, flowNow * 0.6);
+    const dpNow = hwPressureDrop(diam, C, flowNow * 0.6);
 
     // Risk
-    const bp   = breakProb(mat, age);
-    const rl   = remainingLife(mat, age);
+    const bp = breakProb(mat, age);
+    const rl = remainingLife(mat, age);
     const cost = replacementCost(diam, asset.length_m);
 
     // Material replacement recommendation
     const replaceMat = mat === 'AC' ? 'HDPE (mandatory — asbestos protocol applies)' :
         (mat === 'CI' || mat === 'CICL') ? 'HDPE (trenchless CIPP lining) or DIP (open-cut)' :
-        mat === 'PVC' ? 'HDPE or DICL for higher pressure classes' :
-        'DIP or HDPE';
+            mat === 'PVC' ? 'HDPE or DICL for higher pressure classes' :
+                'DIP or HDPE';
 
     const permitItems = [
         { done: false, text: 'Toronto Water — Watermain Construction Approval', sub: 'Submit CCTV, hydraulic model, and design drawings' },
@@ -214,7 +214,7 @@ function PipelineAssetPanel({ asset }) {
     ];
 
     const geoItems = [
-        { done: true,  text: `Min burial depth: 1.8 m to top of pipe (Toronto frost line)`, sub: 'OPSD 802.010 — deeper in areas with heavy traffic loading' },
+        { done: true, text: `Min burial depth: 1.8 m to top of pipe (Toronto frost line)`, sub: 'OPSD 802.010 — deeper in areas with heavy traffic loading' },
         { done: false, text: 'Bedding Class B required (granular material, compacted to 95% proctor)', sub: 'OPSD 802.030 — haunching to spring line minimum' },
         { done: false, text: 'Ground Penetrating Radar (GPR) survey before excavation', sub: 'Identify fibre, power, gas and sewer conflicts within 3 m corridor' },
         { done: false, text: 'Geotechnical borehole — 1 per 100 m for urban route', sub: 'Assess bearing capacity, groundwater depth, and corrosivity index' },
@@ -361,9 +361,9 @@ function PipelineAssetPanel({ asset }) {
                     <div style={{ display: 'flex', flexDirection: 'column', gap: 1, background: '#1a1a1a' }}>
                         {[
                             { mat: 'HDPE', c: 150, life: 100, cost: '$900–1,400/m' },
-                            { mat: 'DIP',  c: 140, life: 100, cost: '$1,100–1,800/m' },
+                            { mat: 'DIP', c: 140, life: 100, cost: '$1,100–1,800/m' },
                             { mat: 'DICL', c: 140, life: 120, cost: '$1,200–2,000/m' },
-                            { mat: 'PVC',  c: 150, life: 80,  cost: '$700–1,100/m' },
+                            { mat: 'PVC', c: 150, life: 80, cost: '$700–1,100/m' },
                         ].map(({ mat: m, c, life, cost: co }) => (
                             <div key={m} style={{ display: 'flex', justifyContent: 'space-between', padding: '8px 12px', background: '#131313' }}>
                                 <span style={{ fontSize: 12, fontWeight: 600, color: '#888' }}>{m}</span>
@@ -942,7 +942,7 @@ function FinancesTab({ parcel }) {
         setLoading(true);
         getParcelFinancialSummary(parcel.id, { signal: controller.signal })
             .then((d) => { if (d) setData(d); })
-            .catch(() => {})
+            .catch(() => { })
             .finally(() => setLoading(false));
         return () => controller.abort();
     }, [parcel?.id]);
@@ -1452,7 +1452,7 @@ function InfraNetworkTab({ asset }) {
                 <div style={{ fontSize: 11, color: '#888', textTransform: 'uppercase', letterSpacing: 1, marginBottom: 8 }}>Toronto Water System</div>
                 <div style={{ display: 'grid', gridTemplateColumns: '1fr 1fr', gap: 8 }}>
                     {[['6,100 km', 'Total watermain'], ['550 km', 'Transmission'], ['5,550 km', 'Distribution'], ['18', 'Pumping stations'],
-                      ['6', 'Pressure zones'], ['13', 'Pressure districts']].map(([val, lab]) => (
+                    ['6', 'Pressure zones'], ['13', 'Pressure districts']].map(([val, lab]) => (
                         <div key={lab} style={{ background: '#161616', borderRadius: 6, padding: '8px 10px' }}>
                             <div style={{ fontSize: 15, fontWeight: 700, color: '#c8a55c' }}>{val}</div>
                             <div style={{ fontSize: 10, color: '#888' }}>{lab}</div>
@@ -1889,7 +1889,7 @@ export default function PolicyPanel({ parcel, isOpen, onClose, activeNav, savedP
     };
 
     return (
-        <aside id="policy-panel" className={isOpen ? '' : 'panel-hidden'} style={{ userSelect: isResizing ? 'none' : undefined }}>
+        <aside id="policy-panel" className={`${isOpen ? '' : 'panel-hidden'} backdrop-blur-xl`} style={{ userSelect: isResizing ? 'none' : undefined }}>
             <div {...resizeHandleProps} style={{ ...resizeHandleProps.style, left: -2 }} />
             <div id="policy-panel-header">
                 <h2 id="policy-panel-title">
