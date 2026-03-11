@@ -1,4 +1,4 @@
-import { useCallback, useMemo } from 'react';
+import { useCallback, useMemo, useState, useRef, useEffect } from 'react';
 import { useSession, signOut } from '../lib/auth-client.js';
 import useResizable from '../hooks/useResizable.js';
 
@@ -42,7 +42,7 @@ function shortAddress(item) {
     return parts[0].trim();
 }
 
-export default function Sidebar({ isCollapsed, onToggleCollapse, activeNav, onNavClick, showHistory, onHistoryClick, onHistoryBack, historyItems, onHistoryItemClick, assetType, onAssetTypeChange }) {
+export default function Sidebar({ isCollapsed, onToggleCollapse, activeNav, onNavClick, showHistory, onHistoryClick, onHistoryBack, historyItems, onHistoryItemClick, assetType, onAssetTypeChange, onDashboardClick, onSettingsClick }) {
     const { data: session } = useSession();
     const user = session?.user;
 
@@ -58,6 +58,23 @@ export default function Sidebar({ isCollapsed, onToggleCollapse, activeNav, onNa
     if (isCollapsed) {
         document.documentElement.style.setProperty('--sidebar-width', `${COLLAPSED_WIDTH}px`);
     }
+
+    const [isUserMenuOpen, setIsUserMenuOpen] = useState(false);
+    const userMenuRef = useRef(null);
+
+    useEffect(() => {
+        function handleClickOutside(event) {
+            if (userMenuRef.current && !userMenuRef.current.contains(event.target)) {
+                setIsUserMenuOpen(false);
+            }
+        }
+        if (isUserMenuOpen) {
+            document.addEventListener('mousedown', handleClickOutside);
+        }
+        return () => {
+            document.removeEventListener('mousedown', handleClickOutside);
+        };
+    }, [isUserMenuOpen]);
 
     const logout = useCallback(async () => {
         await signOut();
@@ -157,12 +174,73 @@ export default function Sidebar({ isCollapsed, onToggleCollapse, activeNav, onNa
 
             <div className="sidebar-bottom">
                 {user && (
-                    <>
+                    <div className="sidebar-user-container" ref={userMenuRef}>
                         <div className="sidebar-divider" />
 
+                        {isUserMenuOpen && (
+                            <div className="user-popup backdrop-blur-xl">
+                                <div className="user-popup-header">
+                                    <div className="user-popup-avatar">
+                                        {user.picture
+                                            ? <img src={user.picture} alt={user.name || 'User'} />
+                                            : <span className="sidebar-user-initials">{initials}</span>
+                                        }
+                                    </div>
+                                    <div className="user-popup-meta">
+                                        <span className="user-popup-name">{user.name || 'User'}</span>
+                                        <span className="user-popup-email">{user.email}</span>
+                                        <span className="user-popup-badge">Pro Plan</span>
+                                    </div>
+                                </div>
+
+                                <div className="user-popup-stats">
+                                    <div className="user-stat">
+                                        <span className="user-stat-val">12</span>
+                                        <span className="user-stat-label">Projects</span>
+                                    </div>
+                                    <div className="user-stat">
+                                        <span className="user-stat-val">2.4k</span>
+                                        <span className="user-stat-label">Credits</span>
+                                    </div>
+                                    <div className="user-stat">
+                                        <span className="user-stat-val">3</span>
+                                        <span className="user-stat-label">Teams</span>
+                                    </div>
+                                </div>
+
+                                <div className="user-popup-links">
+                                    <button className="user-popup-link" onClick={() => { setIsUserMenuOpen(false); onDashboardClick && onDashboardClick(); }}>
+                                        <svg viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="1.5">
+                                            <rect x="3" y="3" width="7" height="7" /><rect x="14" y="3" width="7" height="7" /><rect x="14" y="14" width="7" height="7" /><rect x="3" y="14" width="7" height="7" />
+                                        </svg>
+                                        Dashboard
+                                    </button>
+                                    <button className="user-popup-link" onClick={() => { setIsUserMenuOpen(false); onSettingsClick && onSettingsClick(); }}>
+                                        <svg viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="1.5">
+                                            <circle cx="12" cy="12" r="3" />
+                                            <path d="M19.4 15a1.65 1.65 0 0 0 .33 1.82l.06.06a2 2 0 0 1 0 2.83 2 2 0 0 1-2.83 0l-.06-.06a1.65 1.65 0 0 0-1.82-.33 1.65 1.65 0 0 0-1 1.51V21a2 2 0 0 1-2 2 2 2 0 0 1-2-2v-.09A1.65 1.65 0 0 0 9 19.4a1.65 1.65 0 0 0-1.82.33l-.06.06a2 2 0 0 1-2.83 0 2 2 0 0 1 0-2.83l.06-.06a1.65 1.65 0 0 0 .33-1.82 1.65 1.65 0 0 0-1.51-1H3a2 2 0 0 1-2-2 2 2 0 0 1 2-2h.09A1.65 1.65 0 0 0 4.6 9a1.65 1.65 0 0 0-.33-1.82l-.06-.06a2 2 0 0 1 0-2.83 2 2 0 0 1 2.83 0l.06.06a1.65 1.65 0 0 0 1.82.33H9a1.65 1.65 0 0 0 1-1.51V3a2 2 0 0 1 2-2 2 2 0 0 1 2 2v.09a1.65 1.65 0 0 0 1 1.51 1.65 1.65 0 0 0 1.82-.33l.06-.06a2 2 0 0 1 2.83 0 2 2 0 0 1 0 2.83l-.06.06a1.65 1.65 0 0 0-.33 1.82V9a1.65 1.65 0 0 0 1.51 1H21a2 2 0 0 1 2 2 2 2 0 0 1-2 2h-.09a1.65 1.65 0 0 0-1.51 1z" />
+                                        </svg>
+                                        Settings
+                                    </button>
+                                </div>
+
+                                <div className="user-popup-divider" />
+
+                                <button className="user-popup-logout" onClick={logout}>
+                                    <svg viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="1.5">
+                                        <path d="M9 21H5a2 2 0 0 1-2-2V5a2 2 0 0 1 2-2h4" />
+                                        <polyline points="16 17 21 12 16 7" />
+                                        <line x1="21" y1="12" x2="9" y2="12" />
+                                    </svg>
+                                    Sign Out
+                                </button>
+                            </div>
+                        )}
+
                         <div
-                            className="sidebar-user"
+                            className={`sidebar-user interactive ${isUserMenuOpen ? 'active' : ''}`}
                             title={isCollapsed ? (user.name || user.email) : undefined}
+                            onClick={() => setIsUserMenuOpen(!isUserMenuOpen)}
                         >
                             <div className="sidebar-user-avatar">
                                 {user.picture
@@ -177,23 +255,15 @@ export default function Sidebar({ isCollapsed, onToggleCollapse, activeNav, onNa
                                     <span className="sidebar-user-email">{user.email}</span>
                                 </div>
                             )}
+                            {!isCollapsed && (
+                                <svg className="sidebar-user-chevron" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="1.5" style={{ transform: isUserMenuOpen ? 'rotate(180deg)' : 'rotate(0deg)' }}>
+                                    <polyline points="18 15 12 9 6 15" />
+                                </svg>
+                            )}
                         </div>
 
-                        <button
-                            className="nav-item nav-item--signout"
-                            onClick={logout}
-                            title={isCollapsed ? 'Sign Out' : undefined}
-                        >
-                            <svg viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="1.5">
-                                <path d="M9 21H5a2 2 0 0 1-2-2V5a2 2 0 0 1 2-2h4" />
-                                <polyline points="16 17 21 12 16 7" />
-                                <line x1="21" y1="12" x2="9" y2="12" />
-                            </svg>
-                            <span>Sign Out</span>
-                        </button>
-
                         <div className="sidebar-divider" />
-                    </>
+                    </div>
                 )}
 
                 <button className="nav-item" id="collapse-btn" onClick={onToggleCollapse}>

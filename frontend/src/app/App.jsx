@@ -9,6 +9,8 @@ import PolicyPanel from './components/PolicyPanel.jsx';
 import ChatPanel from './components/ChatPanel.jsx';
 import InfrastructureLayerControl from './components/InfrastructureLayerControl.jsx';
 import LandingPage from './components/LandingPage.jsx';
+import SettingsModal from './components/SettingsModal.jsx';
+import DashboardModal from './components/DashboardModal.jsx';
 import { searchParcels, getNearbyPipelines, getWatermainsBbox } from './api.js';
 import { buildParcelState, isResolvedParcel } from './lib/parcelState.js';
 import './styles/landing.css';
@@ -34,6 +36,8 @@ export default function App() {
   const [savedParcels, setSavedParcels] = useState([]);
   const [showHistory, setShowHistory] = useState(false);
   const [isChatExpanded, setIsChatExpanded] = useState(false);
+  const [isSettingsOpen, setIsSettingsOpen] = useState(false);
+  const [isDashboardModalOpen, setIsDashboardModalOpen] = useState(false);
   const [modelParams, setModelParams] = useState(null);
   const [isModelOpen, setIsModelOpen] = useState(false);
   const [analyzedUploads, setAnalyzedUploads] = useState([]);
@@ -130,6 +134,10 @@ export default function App() {
 
   const handlePanelClose = useCallback(() => {
     setIsPanelOpen(false);
+  }, []);
+
+  const handleDashboardClick = useCallback(() => {
+    setIsDashboardModalOpen(true);
   }, []);
 
   const handleSidebarToggle = useCallback(() => {
@@ -343,6 +351,8 @@ export default function App() {
         onHistoryItemClick={handleHistoryItemClick}
         assetType={assetType}
         onAssetTypeChange={setAssetType}
+        onDashboardClick={handleDashboardClick}
+        onSettingsClick={() => setIsSettingsOpen(true)}
       />
       <PolicyPanel
         parcel={selectedParcel}
@@ -423,6 +433,8 @@ export default function App() {
           />
         )}
       </Suspense>
+      <SettingsModal isOpen={isSettingsOpen} onClose={() => setIsSettingsOpen(false)} user={user} />
+      <DashboardModal isOpen={isDashboardModalOpen} onClose={() => setIsDashboardModalOpen(false)} />
     </>
   );
 }
