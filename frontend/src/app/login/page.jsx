@@ -19,7 +19,9 @@ export default function LoginPage() {
     const [formData, setFormData] = useState({
         name: '',
         email: '',
-        password: ''
+        password: '',
+        confirmPassword: '',
+        acceptTerms: false
     });
 
     const [errors, setErrors] = useState({});
@@ -27,8 +29,9 @@ export default function LoginPage() {
     const [successMessage, setSuccessMessage] = useState('');
 
     const handleInputChange = (e) => {
-        const { name, value } = e.target;
-        setFormData(prev => ({ ...prev, [name]: value }));
+        const { name, value, type, checked } = e.target;
+        const finalValue = type === 'checkbox' ? checked : value;
+        setFormData(prev => ({ ...prev, [name]: finalValue }));
         if (errors[name]) {
             setErrors(prev => ({ ...prev, [name]: '' }));
         }
@@ -41,7 +44,7 @@ export default function LoginPage() {
         setErrors({});
         setServerError('');
         setSuccessMessage('');
-        setFormData({ name: '', email: '', password: '' });
+        setFormData({ name: '', email: '', password: '', confirmPassword: '', acceptTerms: false });
         setShowPassword(false);
     };
 
@@ -82,16 +85,36 @@ export default function LoginPage() {
     const validateInputs = () => {
         const newErrors = {};
         const emailRegex = /^[^\s@]+@[^\s@]+\.[^\s@]+$/;
+        const passwordRegex = /^(?=.*[a-z])(?=.*[A-Z])(?=.*\d)(?=.*[@$!%*?&#])[A-Za-z\d@$!%*?&#]/;
+        const nameRegex = /^[a-zA-Z\s\-']+$/;
 
-        if (!isLogin && formData.name.trim().length < 2) {
-            newErrors.name = 'Name must be at least 2 characters.';
+        const sanitizedEmail = formData.email.trim();
+        const sanitizedName = formData.name.trim();
+
+        if (!isLogin) {
+            if (sanitizedName.length < 2) {
+                newErrors.name = 'Name must be at least 2 characters.';
+            } else if (!nameRegex.test(sanitizedName)) {
+                newErrors.name = 'Name contains valid characters only.';
+            }
+            
+            if (formData.password !== formData.confirmPassword) {
+                newErrors.confirmPassword = 'Passwords do not match.';
+            }
+            if (!formData.acceptTerms) {
+                newErrors.acceptTerms = 'You must accept the terms and policies.';
+            }
         }
-        if (!emailRegex.test(formData.email)) {
+        if (!emailRegex.test(sanitizedEmail)) {
             newErrors.email = 'Valid email required.';
         }
+        
         if (formData.password.length < 8) {
             newErrors.password = 'Password must be at least 8 chars.';
+        } else if (!isLogin && !passwordRegex.test(formData.password)) {
+            newErrors.password = 'Needs uppercase, lowercase, number, & special char.';
         }
+
         setErrors(newErrors);
         return Object.keys(newErrors).length === 0;
     };
@@ -105,7 +128,7 @@ export default function LoginPage() {
         try {
             if (isLogin) {
                 await authClient.signIn.email({
-                    email: formData.email,
+                    email: formData.email.trim(),
                     password: formData.password
                 });
             } else {
@@ -398,6 +421,34 @@ export default function LoginPage() {
                                 </button>
                             </div>
                         </div>
+
+                        {!isLogin && (
+                            <div className="input-group">
+                                <label htmlFor="confirmPassword" className="login-label">
+                                    Confirm Password
+                                    {errors.confirmPassword && <span style={{ color: '#f87171', fontWeight: '400' }}>{errors.confirmPassword}</span>}
+                                </label>
+                                <input id="confirmPassword" name="confirmPassword" type="password" value={formData.confirmPassword} onChange={handleInputChange} placeholder="••••••••" className={`login-input ${errors.confirmPassword ? 'has-error' : ''}`} aria-invalid={!!errors.confirmPassword} />
+                            </div>
+                        )}
+
+                        {!isLogin && (
+                            <div style={{ display: 'flex', flexDirection: 'column', gap: '4px' }}>
+                                <label style={{ display: 'flex', alignItems: 'center', gap: '8px', cursor: 'pointer' }}>
+                                    <input 
+                                        type="checkbox" 
+                                        name="acceptTerms" 
+                                        checked={formData.acceptTerms} 
+                                        onChange={handleInputChange} 
+                                        style={{ accentColor: '#c8a55c', width: '16px', height: '16px', cursor: 'pointer' }}
+                                    />
+                                    <span style={{ fontSize: '13px', color: '#a8a29e', userSelect: 'none' }}>
+                                        I accept the <a href="#" style={{ color: '#dfc07f', textDecoration: 'none' }}>Terms of Service</a> and <a href="#" style={{ color: '#dfc07f', textDecoration: 'none' }}>Privacy Policy</a>
+                                    </span>
+                                </label>
+                                {errors.acceptTerms && <span style={{ color: '#f87171', fontSize: '12px', marginTop: '4px' }}>{errors.acceptTerms}</span>}
+                            </div>
+                        )}
 
                         <button type="submit" disabled={isLoading} className="login-btn">
                             {isLoading ? (
