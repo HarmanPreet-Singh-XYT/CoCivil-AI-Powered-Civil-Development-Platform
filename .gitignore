@@ -9,6 +9,7 @@ dist/
 downloads/
 eggs/
 .eggs/
+.next/
 frontend/.next/
 frontend/node_modules/
 !frontend-react/src/lib/
