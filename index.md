@@ -1,7 +1,7 @@
 # CoCivil — AI-Powered Civil Development Platform
 
 > **Auto-maintained**: Updated after every file edit/creation. See `.claude/CLAUDE.md` for rules.
-> **Last updated**: 2026-03-08 (Celery migration) | **PRD**: [`.claude/docs/PRD.md`](.claude/docs/PRD.md)
+> **Last updated**: 2026-03-10 (full index audit) | **PRD**: [`.claude/docs/PRD.md`](.claude/docs/PRD.md)
 
 ---
 
@@ -37,7 +37,7 @@
 │  MapLibre GL · Three.js · Konva.js · Auth0              │
 ├─────────────────────────────────────────────────────────┤
 │  Backend (FastAPI + SQLAlchemy async)                    │
-│  18 API routers · 35 services · 9 background tasks      │
+│  18 API routers · 81 endpoints · 30+ services · 9 tasks  │
 ├─────────────────────────────────────────────────────────┤
 │  PostgreSQL + PostGIS    │  ChromaDB (RAG vectors)      │
 │  Toronto Open Data CKAN  │  Claude / OpenAI LLM         │
@@ -61,9 +61,13 @@
 2. [Frontend — `frontend-react/`](#frontend--frontend-react)
 3. [Fine-Tuned RAG — `fine-tuned-RAG/`](#fine-tuned-rag--fine-tuned-rag)
 4. [Skills Pipeline — `.claude/skills/`](#skills-pipeline--claudeskills)
-5. [Data & Infrastructure Files](#data--infrastructure-files)
-6. [Config & DevOps](#config--devops)
-7. [API Endpoint Reference](#api-endpoint-reference)
+5. [Agent Skills — `.agents/skills/`](#agent-skills--agentsskills)
+6. [Scripts — `scripts/`](#scripts--scripts)
+7. [Tests — `tests/`](#tests--tests)
+8. [Documentation — `docs/`](#documentation--docs)
+9. [Data & Infrastructure Files](#data--infrastructure-files)
+10. [Config & DevOps](#config--devops)
+11. [API Endpoint Reference](#api-endpoint-reference)
 
 ---
 
@@ -74,15 +78,24 @@
 | File | Purpose |
 |------|---------|
 | `app/main.py` | FastAPI app factory, route registration, middleware |
-| `app/config.py` | Settings (DB, AI provider, S3, Auth0) |
-| `app/database.py` | SQLAlchemy engine & async session |
-| `app/dependencies.py` | FastAPI dependency injection |
+| `app/config.py` | Settings (DB, AI provider, S3, Auth0) via Pydantic BaseSettings |
+| `app/database.py` | SQLAlchemy dual async/sync engines & session factories |
+| `app/dependencies.py` | FastAPI dependency injection (JWT auth, multi-tenant org scoping) |
+| `app/devtools.py` | Preflight connectivity checks (DB, Redis, S3, Docker) |
+| `app/celery_app.py` | Celery application config (broker=Redis, JSON serialization, 9 task modules) |
+
+### Middleware (`app/middleware/`)
+
+| File | Purpose |
+|------|---------|
+| `request_id.py` | Assigns/propagates X-Request-ID header per request |
+| `idempotency.py` | Redis-backed idempotency key enforcement (24h TTL) |
 
 ### Database Models (`app/models/`)
 
 | File | Purpose |
 |------|---------|
-| `base.py` | Base model (timestamps, soft deletes) |
+| `base.py` | Base model (UUIDPrimaryKey, TimestampMixin, GovernanceMixin) |
 | `plan.py` | Development plan |
 | `geospatial.py` | Parcel, zoning, overlay |
 | `entitlement.py` | Variances, approvals |
@@ -104,9 +117,8 @@
 | `plans.py` | `/api/v1/plans` | Plan CRUD + generation |
 | `parcels.py` | `/api/v1/parcels` | Parcel data & search |
 | `entitlement.py` | `/api/v1/entitlements` | Zoning approvals |
-| `compliance.py` | `/api/v1/compliance` | Code compliance checks |
-| `infrastructure.py` | `/api/v1/infrastructure` | Water/electrical/drainage |
-| `geospatial.py` | `/api/v1/geospatial` | GIS operations |
+| `compliance.py` | `/api/v1/compliance` | OBC interior compliance checks |
+| `infrastructure.py` | `/api/v1/infrastructure` | Pipeline assets, watermains, compliance |
 | `finance.py` | `/api/v1/finance` | Pro formas, cost estimates |
 | `assistant.py` | `/api/v1/assistant` | AI chat |
 | `exports.py` | `/api/v1/exports` | PDF/Docx generation |
@@ -129,7 +141,8 @@
 | `compliance_engine.py` | Deterministic zoning compliance (no AI) |
 | `interior_compliance.py` | OBC interior code checking |
 | `infrastructure_compliance.py` | Infrastructure standard compliance |
-| `zoning_service.py` | Zoning validation |
+| `zoning_service.py` | Zoning analysis orchestrator (deterministic) |
+| `zoning_parser.py` | By-law 569-2013 zone string parser (regex-based) |
 | `policy_stack.py` | RAG-backed policy retrieval (ChromaDB) |
 | `geospatial_ingestion.py` | GeoJSON import |
 | `ckan_ingestion.py` | Toronto Open Data CKAN integration |
@@ -147,8 +160,12 @@
 | `design_version_service.py` | Design version management |
 | `governance.py` | Role/permission management |
 | `access_control.py` | Fine-grained access control |
-| `job_service.py` | Async task management |
-| `storage.py` | File storage (S3 + local) |
+| `job_service.py` | Unified job status lookup across 7 async tables |
+| `storage.py` | File storage (S3/MinIO via boto3) |
+| `validation.py` | Data validation for source metadata, policy, precedent, finance |
+| `reference_data.py` | DB-backed reference data management (templates, unit types) |
+| `idempotency.py` | Pydantic-aware wrapper over Redis idempotency cache |
+| `infrastructure_ingestion.py` | CKAN ingestion for water mains, sewers, bridges |
 | `submission/templates.py` | Document templates & AI prompts |
 | `submission/context_builder.py` | Submission context assembly |
 | `submission/generator.py` | AI-driven document generation |
@@ -170,13 +187,24 @@
 
 ### Schemas (`app/schemas/`)
 
-17 Pydantic request/response schema files: `common.py`, `plan.py`, `entitlement.py`, `geospatial.py`, `finance.py`, `infrastructure.py`, etc.
-
-### Celery App
-
 | File | Purpose |
 |------|---------|
-| `app/celery_app.py` | Celery application config (broker=Redis, JSON serialization, autodiscover) |
+| `common.py` | HealthResponse, JobAccepted, PaginationParams, Citation |
+| `plan.py` | PlanGenerateRequest, PlanResponse, SubmissionDocumentResponse, readiness |
+| `entitlement.py` | EntitlementRunRequest/Response, PrecedentSearchRequest/Response |
+| `geospatial.py` | ParcelSearchParams, ParcelResponse, PolicyStackResponse, ZoningAnalysisResponse |
+| `assistant.py` | AssistantChatRequest/Response, ModelParseRequest, InfraModelParseRequest |
+| `finance.py` | FinancialRunRequest/Response, FinancialAssumptionSetReferenceResponse |
+| `infrastructure.py` | PipelineComplianceRequest, BridgeComplianceRequest, NearbyPipelineRequest |
+| `simulation.py` | MassingRequest/Response, LayoutRunRequest/Response, UnitTypeReferenceResponse |
+| `tenant.py` | ProjectCreate/Response, ScenarioCreate/Response, AddParcelRequest |
+| `job.py` | JobStatusResponse (unified across all async job types) |
+| `auth.py` | RegisterRequest, LoginRequest, TokenResponse |
+| `upload.py` | UploadResponse, UploadDetail, GenerateResponseRequest |
+| `export.py` | ExportRequest/Response |
+| `governance.py` | SnapshotManifestResponse, ReviewQueueItemResponse |
+| `design_version.py` | BranchCreate/Response, CommitRequest, VersionResponse |
+| `policy.py` | PolicySearchParams, PolicyClauseResponse |
 
 ### Background Tasks (`app/tasks/`) — Celery tasks
 
@@ -213,7 +241,11 @@
 | `src/main.jsx` | React root, Auth0 provider |
 | `src/App.jsx` | Main app shell |
 | `src/api.js` | API client (all backend calls) |
-| `src/index.css` | Global styles |
+| `src/index.css` | Global styles + CSS custom properties (--sidebar-width, --panel-width, --chat-height) |
+| `src/landing.css` | Landing page styles |
+| `src/ModelViewer.css` | 3D viewer overlay styles |
+| `src/InfrastructureViewer.css` | Infrastructure viewer styles |
+| `src/UserBubble.css` | User bubble expand/collapse animations |
 | `index.html` | HTML entry point |
 | `vite.config.js` | Vite bundler config |
 
@@ -235,6 +267,7 @@
 | `InfrastructureViewer.jsx` | 3D pipeline network viewer |
 | `ContractorCards.jsx` | Contractor/trade recommendation cards |
 | `BlueprintOverlay.jsx` | Blueprint display overlay |
+| `InfrastructureLayerControl.jsx` | Floating layer toggle panel (Roads, Water, EV) |
 | `UserBubble.jsx` | User profile menu |
 
 ### Floor Plan Editor (`src/components/floorplan/`)
@@ -282,6 +315,15 @@
 | `parcelState.js` | Parcel data state management |
 | `chatCommands.js` | Chat command parsing |
 | `watermainStandards.js` | Water main diameter/depth rules |
+| `chatCommands.test.js` | Tests for chat command parsing |
+| `parcelState.test.js` | Tests for parcel state functions |
+
+### Dev Harness (`src/dev/`)
+
+| File | Purpose |
+|------|---------|
+| `ModelViewerHarness.jsx` | Isolated 3D viewer testing (loaded via `?viewerHarness=1`) |
+| `modelViewerHarnessData.js` | Sample parcel, model params, floor plans for harness |
 
 ---
 
@@ -295,8 +337,13 @@
 | `api.py` | FastAPI endpoints for RAG service |
 | `ingest.py` | Load documents into ChromaDB |
 | `fast_ingest.py` | Optimized bulk ingestion |
-| `populate_rag.py` | Initial population script |
-| `populate_direct.py` | Direct database population |
+| `populate_rag.py` | Parallel population via API (ThreadPoolExecutor) |
+| `populate_direct.py` | Direct in-process population (targeted subtopics) |
+| `get_context.py` | CLI debug tool — retrieve and print context for a query |
+| `run_batch.py` | Batch inspection of retriever results |
+| `test_ask.py` | Smoke test — single hardcoded question |
+| `check_empty.py` | Audit — count entries missing output |
+| `fix_one.py` | One-shot repair for a single entry |
 | `chroma_db/` | ChromaDB vector database storage |
 
 ---
@@ -325,6 +372,135 @@ Address → source-discovery → parcel-zoning-research → buildability-analysi
 
 ---
 
+## Agent Skills — `.agents/skills/`
+
+29 self-contained agent skill definitions for Ontario planning document generation. Each directory contains a `SKILL.md` with inputs, outputs, workflow, and governing law references.
+
+### Data & Research Skills
+
+| Skill | Section | Purpose |
+|-------|---------|---------|
+| `neon-postgres` | — | Neon serverless Postgres reference guide |
+| `ontario-planning-framework` | 1 | Foundational legal hierarchy and data sources |
+| `ontario-planning-appendices` | 15 | Reference compendium (11 appendices: legislation, fees, glossary, QA) |
+
+### Compliance & Analysis Skills
+
+| Skill | Section | Purpose |
+|-------|---------|---------|
+| `ontario-compliance-matrix` | 2 | Zoning standards comparison table (required vs proposed) |
+| `ontario-as-of-right-checker` | 14 | Determine if development needs no planning application |
+| `ontario-required-studies` | 15 | Trigger-based checklist of 22 required technical studies |
+| `ontario-upload-analysis` | 12 | Extract dimensions from uploaded PDF/DXF drawings |
+
+### Document Generation Skills
+
+| Skill | Section | Purpose |
+|-------|---------|---------|
+| `ontario-planning-rationale` | 3 | Full 15–40 page planning rationale report |
+| `ontario-cover-letter` | 4 | Formal application cover letter |
+| `ontario-precedent-report` | 5 | CoA/OLT comparable decisions report |
+| `ontario-financial-feasibility` | 6 | Development cost/revenue pro forma |
+| `ontario-massing-built-form` | 7 | Built form description + guideline compliance |
+| `ontario-unit-mix-layout` | 8 | Unit distribution + Growing Up Guidelines check |
+| `ontario-shadow-study` | 9 | Shadow analysis (Toronto standard test dates) |
+| `ontario-public-benefit` | 10 | Public benefit statement (housing, sustainability) |
+| `ontario-site-plan-data` | 11 | Site plan data summary tables |
+| `ontario-correction-response` | 13 | Response letter to municipal staff comments |
+| `ontario-due-diligence` | 16 | Consolidated pre-acquisition due diligence report |
+
+### Approval & Legal Skills
+
+| Skill | Section | Purpose |
+|-------|---------|---------|
+| `ontario-approval-pathway` | 17 | Approval process classification (as-of-right/MV/ZBA/OPA) |
+| `ontario-timeline-fee-estimator` | 18 | Timeline + government/consultant fee estimates |
+| `ontario-four-statutory-tests` | 20 | s.45(1) four-test analysis for minor variance |
+| `ontario-variance-justification-table` | 21 | Per-variance justification table for CoA package |
+| `ontario-building-permit-checklist` | 22 | Post-approval building permit readiness checklist |
+| `ontario-olt-appeal-strategy` | 24 | OLT appeal strategy brief (PROCEED/REVISE/SETTLE) |
+
+### Application Packaging Skills
+
+| Skill | Section | Purpose |
+|-------|---------|---------|
+| `ontario-auto-filled-committee-form` | 19 | Pre-populated CoA application form |
+| `ontario-neighbour-support-letter` | 23 | Neighbour info letter + support letter template |
+| `ontario-site-photo-checklist` | 25 | Required photographs checklist by proposal type |
+| `ontario-pre-application-consultation` | 26 | Pre-consultation meeting package |
+| `ontario-professional-referral-matcher` | 27 | Match project to required professionals (RPP, OAA, P.Eng, etc.) |
+
+---
+
+## Scripts — `scripts/`
+
+| File | Purpose |
+|------|---------|
+| `seed_toronto.py` | Quick 6-step Toronto data seed (parcels, zoning, overlays, dev apps) |
+| `seed_toronto_detailed.py` | Full 17-step Toronto seed with per-step control and progress reporting |
+| `seed_policies.py` | Seed curated Toronto MVP policy corpus (5 docs, 15 clauses) |
+| `seed_reference_data.py` | Seed massing templates, unit types, financial assumptions |
+| `railway_seed.py` | Railway deployment seed (downloads from CKAN, supports bbox filter) |
+| `ingest_toronto_tracks_1_2.py` | CLI for manual geospatial dataset ingestion (5 subcommands) |
+| `audit_toronto_seed.py` | Audit DB state + run benchmark suite against real parcel data |
+| `dev_doctor.py` | Preflight connectivity check for local dev environment |
+| `generate_sample_dxf.py` | Generate rich sample building DXF (6-storey mixed-use) |
+| `generate_sample_pipeline_dxf.py` | Generate sample water main DXF (3x2 junction grid) |
+| `test_search.py` | Ad-hoc parcel search test against live DB |
+| `init-extensions.sql` | PostgreSQL init (uuid-ossp, postgis, pgvector extensions) |
+
+---
+
+## Tests — `tests/`
+
+24+ test files with pytest + httpx AsyncClient.
+
+| File | Coverage |
+|------|----------|
+| `conftest.py` | Shared fixtures (httpx AsyncClient via ASGITransport) |
+| `test_compliance_engine.py` | Deterministic compliance: FSI, height, lot coverage, parking, angular plane, minor variance |
+| `test_zoning_parser.py` | Zone string parsing (12 categories) + standards lookup |
+| `test_thin_slice_runtime.py` | Massing, layout, financial models + precedent scoring |
+| `test_context_builder.py` | Template placeholder completeness + missing data markers |
+| `test_document_selector.py` | Conditional document selection (as-of-right, MV, ZBA, refusal) |
+| `test_citation_verifier.py` | By-law section validation + strip unverified citations |
+| `test_submission_readiness.py` | Readiness evaluation (blocking issues, placeholders, approval status) |
+| `test_geospatial_services.py` | Address normalization, parcel search, canonical address selection |
+| `test_geospatial_ingestion.py` | Zone code picking, decision normalization, geometry parsing |
+| `test_overlay_service.py` | Overlay dedup, metric sorting, 404 on missing parcel |
+| `test_policy_stack.py` | Policy ordering by override level, snapshot dedup |
+| `test_policy_seed.py` | Curated corpus structure (5 docs, 15 clauses, 5 override levels) |
+| `test_benchmarks.py` | Benchmark fixture loading, case evaluation, suite summarization |
+| `test_governance.py` | Manifest hash stability, export control decisions |
+| `test_validation.py` | Source metadata, policy rule, precedent, finance record validation |
+| `test_dependencies.py` | JWT auth: DB role overrides JWT claim, multi-org 403 |
+| `test_assistant_router.py` | Chat endpoint: 503 without key, prompt structure verification |
+| `test_plans.py` | Plan generation auth guard (401 without token) |
+| `test_health.py` | Health endpoint returns status + version |
+| `test_parcels.py` | Parcel search validation + zoning analysis payload structure |
+| `test_job_service.py` | Job status serialization across async tables |
+| `test_dev_architecture.py` | Docker compose structure, .env.example validation |
+| `test_audit_toronto_seed.py` | Benchmark suite execution without DB |
+| `fixtures/benchmarks/` | 3 fixture files: toronto_core.json, toronto_phase2.json, toronto_showcase.json |
+
+---
+
+## Documentation — `docs/`
+
+| File | Purpose |
+|------|---------|
+| `index.md` | Documentation overview (29 endpoints, 34 tables, implementation status) |
+| `arterial_backend_clone_analysis.md` | Reverse-engineering analysis of Arterial.design (founding blueprint) |
+| `DATA_PLAN.md` | MVP data plan: 4 dataset tiers, 9-stage ingestion pipeline |
+| `DATA_RESEARCH_TEAM_PLAN.md` | 6 parallel research tracks for Toronto MVP |
+| `IMPLEMENTATION_PLAN.md` | Full technical spec: schema DDL, algorithms, phase breakdown |
+| `SUBMISSION_RESEARCH.md` | Toronto application requirements, document types, policy framework |
+| `RAG_LEGAL_DOCUMENT_GENERATION_RESEARCH.md` | RAG architecture research: embeddings, chunking, hallucination prevention |
+| `TRACK_3_4_RESEARCH.md` | Research for Policy Text + Hard Constraint Overlays tracks |
+| `TRACK_5_6_RESEARCH.md` | Research for Simulation Defaults + Precedent/Permit tracks |
+
+---
+
 ## Data & Infrastructure Files
 
 | Path | Purpose |
@@ -333,11 +509,12 @@ Address → source-discovery → parcel-zoning-research → buildability-analysi
 | `data/zoning-area-4326.geojson` | Zoning designations |
 | `data/zoning-building-setback-overlay-4326.geojson` | Setback overlays |
 | `data/zoning-height-overlay-4326.geojson` | Height restriction overlays |
-| `data/development-applications.json` | CoA/ZBA/OPA precedent records |
-| `water-system-data/` | Water infrastructure GeoJSON + metadata |
-| `water-policy/` | Water infrastructure policy documents |
-| `Road/` | Road infrastructure data |
-| `City-electric-charge/` | Electric charging infrastructure |
+| `data/development-applications.json` | CoA/ZBA/OPA precedent records (UTM coords) |
+| `data/test_floor_plan.dxf` | Sample DXF for parser testing |
+| `water-system-data/` | 7 files: watermain networks, hydrants, valves, fittings, fountains, waterbodies shapefile |
+| `water-policy/` | 13 markdown docs + 20 PDF references (Ontario regs, MECP procedures, MTU zone maps) |
+| `Road/` | Road Reconstruction Program GeoJSON (LineString) |
+| `City-electric-charge/` | City-operated EV charging stations GeoJSON (Point) |
 
 ---
 
@@ -345,39 +522,165 @@ Address → source-discovery → parcel-zoning-research → buildability-analysi
 
 | File | Purpose |
 |------|---------|
-| `docker-compose.yml` | Local dev (Postgres + PostGIS + app) |
-| `docker-compose.app.yml` | App-only compose |
-| `Dockerfile` | Production build |
-| `railway.toml` | Railway deployment config |
+| `docker-compose.yml` | Infra-only compose: PostGIS 16, Redis 7, MinIO |
+| `docker-compose.app.yml` | App compose override: Celery worker + API (containerized) |
+| `Dockerfile` | Two-stage build: Node 20 frontend + Python 3.11 backend |
+| `railway.toml` | Railway config (pre-deploy: alembic migrate, health: /api/v1/health) |
 | `alembic.ini` | Alembic migration config |
-| `alembic/` | Database migration versions |
-| `pyproject.toml` | Python project config (uv) |
-| `Makefile` | Build targets |
-| `.env.example` | Environment variable template |
+| `alembic/` | 6 migrations: initial 34-table schema → infrastructure assets |
+| `pyproject.toml` | Python project config (uv), Python ≥3.11, pytest asyncio_mode=auto |
+| `Makefile` | 12 targets: infra-up/down, doctor, migrate, run-api/frontend, seed, test |
+| `.env.example` | Environment variable template (localhost targets) |
+| `PLAN.md` | Architecture design document (995 lines, 5 backend systems) |
+| `FLOOR_PLAN_EDITOR_IMPROVEMENTS.md` | Floor plan editor feature documentation |
+| `TOOLBAR_VISUAL_GUIDE.txt` | ASCII art toolbar reference |
+| `skills-lock.json` | Claude skills lock file (neon-postgres) |
+| `uv.lock` | UV dependency lock file |
 
 ---
 
-## API Endpoint Reference
+## API Endpoint Reference (81 endpoints)
+
+### Auth & Health
 
 | Method | Endpoint | Description |
 |--------|----------|-------------|
-| `GET` | `/api/v1/parcels/search` | Search parcels by address |
-| `GET` | `/api/v1/parcels/{id}` | Get parcel details |
-| `GET` | `/api/v1/parcels/{id}/policy-stack` | Get applicable policies (RAG) |
-| `GET` | `/api/v1/parcels/{id}/overlays` | Get zoning overlays |
-| `GET` | `/api/v1/parcels/{id}/zoning-analysis` | Full zoning analysis |
-| `GET` | `/api/v1/parcels/{id}/nearby-applications` | Nearby dev applications |
-| `GET` | `/api/v1/parcels/{id}/financial-summary` | Financial feasibility |
-| `POST` | `/api/v1/plans` | Create development plan |
-| `GET` | `/api/v1/plans/{id}` | Get plan status & data |
-| `GET` | `/api/v1/plans/{id}/documents` | Get generated documents |
-| `POST` | `/api/v1/plans/{id}/documents/{type}/regenerate` | Regenerate a document |
-| `POST` | `/api/v1/assistant/chat` | AI chat with context |
-| `POST` | `/api/v1/uploads` | Upload document for analysis |
-| `GET` | `/api/v1/uploads/{id}` | Get upload status & extracts |
-| `POST` | `/api/v1/ingestion/building-permits` | Ingest building permits |
-| `POST` | `/api/v1/ingestion/coa-applications` | Ingest CoA applications |
-| `GET` | `/api/health` | Health check |
+| `POST` | `/api/v1/auth/register` | Register user + org, returns JWT |
+| `POST` | `/api/v1/auth/login` | Login, returns JWT |
+| `GET` | `/api/v1/health` | DB + Redis + Celery liveness check |
+
+### Parcels (7 endpoints)
+
+| Method | Endpoint | Description |
+|--------|----------|-------------|
+| `GET` | `/api/v1/parcels/search` | Search parcels by address/bbox/zone |
+| `GET` | `/api/v1/parcels/{id}` | Get parcel detail with GeoJSON |
+| `GET` | `/api/v1/parcels/{id}/zoning-analysis` | Full zoning analysis (components, standards, overlays) |
+| `GET` | `/api/v1/parcels/{id}/policy-stack` | Applicable policy stack (ChromaDB RAG) |
+| `GET` | `/api/v1/parcels/{id}/overlays` | Overlay layers intersecting parcel |
+| `GET` | `/api/v1/parcels/{id}/nearby-applications` | Dev applications within radius |
+| `GET` | `/api/v1/parcels/{id}/financial-summary` | Quick financial feasibility snapshot |
+
+### Plans (14 endpoints)
+
+| Method | Endpoint | Description |
+|--------|----------|-------------|
+| `POST` | `/api/v1/plans/generate` | Submit NL query, enqueue plan pipeline |
+| `GET` | `/api/v1/plans` | List all plans for org |
+| `GET` | `/api/v1/plans/{id}` | Get plan with documents |
+| `GET` | `/api/v1/plans/{id}/readiness` | Submission readiness assessment |
+| `POST` | `/api/v1/plans/{id}/clarify` | Answer clarification questions |
+| `GET` | `/api/v1/plans/{id}/documents` | List submission documents |
+| `GET` | `/api/v1/plans/{id}/documents/{doc_id}` | Get single document |
+| `POST` | `/api/v1/plans/{id}/documents/{doc_id}/submit-review` | Send doc to human review |
+| `POST` | `/api/v1/plans/{id}/documents/{doc_id}/approve` | Approve reviewed document |
+| `POST` | `/api/v1/plans/{id}/documents/{doc_id}/reject` | Reject reviewed document |
+| `POST` | `/api/v1/plans/{id}/generate-document/{type}` | Generate/regenerate one document type |
+| `GET` | `/api/v1/plans/{id}/documents/{doc_id}/download` | Download as markdown/html/docx |
+| `POST` | `/api/v1/plans/{id}/export` | Export all plan docs as DOCX |
+| `GET` | `/api/v1/plans/{id}/contractors` | Recommend local contractors (Google Places) |
+
+### Assistant (3 endpoints)
+
+| Method | Endpoint | Description |
+|--------|----------|-------------|
+| `POST` | `/api/v1/assistant/chat` | Multi-turn planning chat (RAG + fine-tuned model) |
+| `POST` | `/api/v1/assistant/parse-model` | Parse NL building description into 3D params |
+| `POST` | `/api/v1/assistant/parse-infra-model` | Parse NL infrastructure description into params |
+
+### Projects & Scenarios (9 endpoints)
+
+| Method | Endpoint | Description |
+|--------|----------|-------------|
+| `POST` | `/api/v1/projects` | Create project |
+| `GET` | `/api/v1/projects` | List projects for org |
+| `GET` | `/api/v1/projects/{id}` | Get project |
+| `PATCH` | `/api/v1/projects/{id}` | Update project |
+| `POST` | `/api/v1/projects/{id}/parcels` | Link parcel to project |
+| `DELETE` | `/api/v1/projects/{id}/parcels/{parcel_id}` | Unlink parcel |
+| `POST` | `/api/v1/projects/{id}/scenarios` | Create scenario run |
+| `GET` | `/api/v1/scenarios/{id}` | Get scenario |
+| `GET` | `/api/v1/scenarios/{id}/compare/{other_id}` | Compare two scenarios |
+
+### Simulation (6 endpoints)
+
+| Method | Endpoint | Description |
+|--------|----------|-------------|
+| `POST` | `/api/v1/scenarios/{id}/massings` | Start massing generation |
+| `GET` | `/api/v1/massings/{id}` | Get massing result |
+| `GET` | `/api/v1/reference/massing-templates` | List massing templates |
+| `GET` | `/api/v1/reference/unit-types` | List unit types |
+| `POST` | `/api/v1/massings/{id}/layout-runs` | Start layout optimization |
+| `GET` | `/api/v1/layout-runs/{id}` | Get layout result |
+
+### Entitlement & Precedent (4 endpoints)
+
+| Method | Endpoint | Description |
+|--------|----------|-------------|
+| `POST` | `/api/v1/scenarios/{id}/entitlement-runs` | Start entitlement check |
+| `GET` | `/api/v1/entitlement-runs/{id}` | Poll entitlement result |
+| `POST` | `/api/v1/scenarios/{id}/precedent-searches` | Start precedent search |
+| `GET` | `/api/v1/precedent-searches/{id}` | Poll precedent result |
+
+### Finance (3 endpoints)
+
+| Method | Endpoint | Description |
+|--------|----------|-------------|
+| `POST` | `/api/v1/scenarios/{id}/financial-runs` | Start financial analysis |
+| `GET` | `/api/v1/financial-runs/{id}` | Get financial result |
+| `GET` | `/api/v1/reference/financial-assumption-sets` | List assumption sets |
+
+### Uploads (7 endpoints)
+
+| Method | Endpoint | Description |
+|--------|----------|-------------|
+| `POST` | `/api/v1/uploads` | Upload file (DXF parsed inline, others via Celery) |
+| `GET` | `/api/v1/uploads` | List uploads for org |
+| `GET` | `/api/v1/uploads/{id}` | Get upload status + extracted data |
+| `GET` | `/api/v1/uploads/{id}/pages` | Get page images as presigned S3 URLs |
+| `GET` | `/api/v1/uploads/{id}/analysis` | Get extracted data + compliance findings |
+| `POST` | `/api/v1/uploads/{id}/generate-plan` | Feed extracted data into plan pipeline |
+| `POST` | `/api/v1/uploads/{id}/generate-response` | Generate response doc from findings |
+
+### Ingestion (7 endpoints)
+
+| Method | Endpoint | Description |
+|--------|----------|-------------|
+| `POST` | `/api/v1/admin/ingest/building-permits` | Trigger building permit CKAN ingestion |
+| `POST` | `/api/v1/admin/ingest/coa-applications` | Trigger CoA application ingestion |
+| `POST` | `/api/v1/admin/ingest/water-mains` | Trigger water main ingestion |
+| `POST` | `/api/v1/admin/ingest/sanitary-sewers` | Trigger sanitary sewer ingestion |
+| `POST` | `/api/v1/admin/ingest/storm-sewers` | Trigger storm sewer ingestion |
+| `POST` | `/api/v1/admin/ingest/bridges` | Trigger bridge inventory ingestion |
+| `GET` | `/api/v1/admin/ingest/status` | Ingestion status + dataset counts |
+
+### Infrastructure (3 endpoints)
+
+| Method | Endpoint | Description |
+|--------|----------|-------------|
+| `GET` | `/api/v1/infrastructure/pipelines/nearby` | Nearby pipeline assets (GeoJSON) |
+| `POST` | `/api/v1/infrastructure/compliance/pipeline` | Pipeline compliance check |
+| `GET` | `/api/v1/infrastructure/watermains/bbox` | Watermain segments in viewport |
+
+### Compliance, Exports, Design, Governance, Policy, Jobs (12 endpoints)
+
+| Method | Endpoint | Description |
+|--------|----------|-------------|
+| `POST` | `/api/v1/compliance/interior` | OBC interior compliance check |
+| `POST` | `/api/v1/exports` | Create export job |
+| `GET` | `/api/v1/exports/{id}` | Get export result |
+| `POST` | `/api/v1/designs/{project_id}/branches` | Create design branch |
+| `GET` | `/api/v1/designs/{project_id}/branches` | List branches |
+| `DELETE` | `/api/v1/designs/{project_id}/branches/{id}` | Delete branch |
+| `POST` | `/api/v1/designs/branches/{id}/commit` | Commit version |
+| `GET` | `/api/v1/designs/branches/{id}/versions` | List versions |
+| `GET` | `/api/v1/designs/branches/{id}/latest` | Get latest version |
+| `GET` | `/api/v1/designs/versions/{id}` | Get specific version |
+| `GET` | `/api/v1/snapshot-manifests/{id}` | Get manifest (admin) |
+| `GET` | `/api/v1/review-queue` | List review items (admin) |
+| `GET` | `/api/v1/policies/search` | Policy search (stub) |
+| `POST` | `/api/v1/scenarios/{id}/policy-overrides` | Policy overrides (stub) |
+| `GET` | `/api/v1/jobs/{id}` | Generic job status polling |
 
 ---
 
