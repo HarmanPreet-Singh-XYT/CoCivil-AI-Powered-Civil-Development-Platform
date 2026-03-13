@@ -27,6 +27,10 @@ from app.routers import ingestion as ingestion
 from app.routers import uploads as uploads
 from app.routers import compliance as compliance
 from app.routers import design_versions as design_versions
+# ── NEW: billing routers ───────────────────────────────────────────────────
+from app.routers import billing as billing
+from app.routers import billing_webhooks as billing_webhooks
+# ──────────────────────────────────────────────────────────────────────────
 
 structlog.configure(
     processors=[
@@ -79,6 +83,9 @@ def create_app() -> FastAPI:
     application.include_router(infrastructure.router, prefix=prefix, tags=["infrastructure"])
     application.include_router(compliance.router, prefix=prefix, tags=["compliance"])
     application.include_router(design_versions.router, prefix=prefix, tags=["designs"])
+    
+    application.include_router(billing.router, prefix=prefix, tags=["billing"])
+    application.include_router(billing_webhooks.router, prefix=prefix, tags=["billing"])
 
     # Serve built React frontend (production only — when frontend-dist exists)
     frontend_dist = Path(__file__).parent.parent / "frontend-dist"
@@ -87,7 +94,6 @@ def create_app() -> FastAPI:
 
         @application.get("/{full_path:path}", include_in_schema=False)
         async def serve_spa(full_path: str):
-            # Serve static files from frontend-dist root (images, fonts, etc.)
             static_file = frontend_dist / full_path
             if full_path and static_file.exists() and static_file.is_file():
                 return FileResponse(static_file)
